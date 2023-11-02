@@ -1,3 +1,127 @@
+rsync (3.2.7-1) unstable; urgency=medium
+
+  [ Juri Grabowski ]
+  * New upstream version 3.2.7
+  * Remove patches included in new release
+
+  [ Helmut Grohne ]
+  * Fix FTCBFS: Use native instances for python build depends
+    (closes: #1022988).
+
+  [ Samuel Henrique ]
+  * d/rsync.lintian-overrides: Update findings as per lintian changes
+  * d/patches: Add two upstream patches to fix issues post 3.2.7 release:
+    - trust_the_sender_on_a_local_transfer.patch
+    - avoid_quoting_of_tilde_when_its_a_destination_arg.patch
+
+ -- Samuel Henrique <samueloph@debian.org>  Sun, 18 Dec 2022 14:10:54 +0000
+
+rsync (3.2.6-4) unstable; urgency=medium
+
+  * Upload to unstable
+    - d/patches:
+      ~ fix_files_from.patch: Upstream patch to address the files-from issue.
+      ~ fix_relative.patch: Upstream patch to fix exclusion of /. with
+        --relative.
+      ~ fix_remote_filter_rules_validation.patch: Upstream patch to fix bug
+        with validating remote filter rules.
+    (closes: #1018296, #1019561)
+
+ -- Samuel Henrique <samueloph@debian.org>  Wed, 21 Sep 2022 18:58:57 +0100
+
+rsync (3.2.6-3) experimental; urgency=medium
+
+  * d/patches:
+    - fix_files_from.patch: Upstream patch to address the files-from issue,
+      likely to also be related to #1019561 and #1018296
+    - fix_relative.patch: Upstream patch to fix exclusion of /. with --relative
+
+ -- Samuel Henrique <samueloph@debian.org>  Wed, 14 Sep 2022 19:25:19 +0100
+
+rsync (3.2.6-2) experimental; urgency=medium
+
+  * d/p/fix_remote_filter_rules_validation.patch: New upstream patch to try to
+    fix #1019561 and #1018296
+
+ -- Samuel Henrique <samueloph@debian.org>  Tue, 13 Sep 2022 20:55:01 +0100
+
+rsync (3.2.6-1) unstable; urgency=medium
+
+  * New upstream version 3.2.6
+    - Added a safety check that prevents the sender from removing destination
+      files when a local copy using --remove-source-files has some files that
+      are shared between the sending & receiving hierarchies, including the
+      case where the source dir & destination dir are identical
+      (closes: #1016102)
+  * Bump Standards-Version to 4.6.1
+
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 10 Sep 2022 20:03:51 +0100
+
+rsync (3.2.5-1) unstable; urgency=medium
+
+  * New upstream version 3.2.5
+    - Added some file-list safety checking that helps to ensure that a rogue
+      sending rsync can't add unrequested top-level names and/or include
+      recursive names that should have been excluded by the sender. These
+      extra safety checks only require the receiver rsync to be updated. When
+      dealing with an untrusted sending host, it is safest to copy into a
+      dedicated destination directory for the remote content (i.e. don't copy
+      into a destination directory that contains files that aren't from the
+      remote host unless you trust the remote host)
+      (closes: #1016543, CVE-2022-29154).
+    - The build date that goes into the manpages is now based on the
+      developer's release date, not on the build's local-timezone
+      interpretation of the date (closes: #1009981)
+
+ -- Samuel Henrique <samueloph@debian.org>  Tue, 16 Aug 2022 11:03:48 +0100
+
+rsync (3.2.4-1) unstable; urgency=medium
+
+  [ Samuel Henrique ]
+  * New upstream version 3.2.4
+    - Work around a glibc bug where lchmod() breaks in a chroot w/o /proc
+      mounted (closes: #995046).
+    - rsync.1: remove prepended backticks which broke --stop-after and
+      --stop-at formatting (closes: #1007990).
+  * Ship new python-based rrsync with --with-rrsync:
+    - rrsync was previouysly written in bash.
+    - A manpage is now shipped for rrsync.
+    - python3 and python3-cmarkgfm are new B-Ds since they're needed
+      to generate the manpage.
+  * d/control:
+    - Add version requirement for some libxxhash-dev and libzstd-dev as
+      per upstream docs.
+    - Add python3-braceexpand to Suggests as it can be used by rrsync.
+  * d/rsync.install: cull_options has been renamed to cull-options.
+  * d/patches:
+    - Refresh the following patches:
+      ~ disable_reconfigure_req.diff;
+      ~ perl_shebang.patch;
+      ~ skip_devices_test.patch;
+    - Drop the following patches, applied upstream now:
+      ~ CVE-2020-14387.patch;
+      ~ copy-devices.diff;
+      ~ fix_delay_updates.patch;
+      ~ fix_ftcbfs_configure.patch;
+      ~ fix_mkpath.patch;
+      ~ fix_rsync-ssl_RSYNC_SSL_CERT_feature.patch;
+      ~ fix_sparse_inplace.patch;
+      ~ manpage_upstream_fixes.patch;
+      ~ update_rrsync_options.patch;
+      ~ workaround_glibc_lchmod_regression.patch;
+
+  [ Sergio Durigan Junior ]
+  * d/rules: Disable ASM optimizations when building.
+    This is not needed because the only ASM-optimized implementation
+    available is the MD5 hash, which is actually a no-op because we link
+    against OpenSSL and rsync ends up using that library's implementation
+    of the hash.  Even then, the final binary ends up with the
+    ASM-optimized version included, which makes it become
+    CET-incompatible.
+    Thanks to Dimitri John Ledkov <xnox@ubuntu.com>
+
+ -- Samuel Henrique <samueloph@debian.org>  Mon, 18 Apr 2022 14:44:44 +0100
+
 rsync (3.2.3-8) unstable; urgency=medium
 
   * debian/patches:
