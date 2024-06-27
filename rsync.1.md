@@ -245,7 +245,7 @@ to be copied to different destination directories using more than one copy.
 
 While a copy of a case-ignoring filesystem to a case-ignoring filesystem can
 work out fairly well, if no `--delete-during` or `--delete-before` option is
-active, rsync can potentially update an existing file on the receiveing side
+active, rsync can potentially update an existing file on the receiving side
 without noticing that the upper-/lower-case of the filename should be changed
 to match the sender.
 
@@ -1636,7 +1636,9 @@ expand it.
 0.  `--crtimes`, `-N,`
 
     This tells rsync to set the create times (newness) of the destination
-    files to the same value as the source files.
+    files to the same value as the source files. Your OS & filesystem must
+    support the setting of arbitrary creation (birth) times for this option
+    to be supported.
 
 0.  `--omit-dir-times`, `-O`
 
@@ -2104,7 +2106,8 @@ expand it.
     See the [`--max-size`](#opt) option for a description of how SIZE can be
     specified.  The default suffix if none is given is bytes.
 
-    Beginning in 3.2.3, a value of 0 specifies no limit.
+    Beginning in 3.2.7, a value of 0 is an easy way to specify SIZE_MAX (the
+    largest limit possible).
 
     You can set a default value using the environment variable
     [`RSYNC_MAX_ALLOC`](#) using the same SIZE values as supported by this

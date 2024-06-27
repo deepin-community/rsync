@@ -1,0 +1,88 @@
+From: Samuel Henrique <samueloph@debian.org>
+Date: Fri, 12 Apr 2024 00:11:07 +0100
+Subject: =?utf-8?q?Removes_usage_of_env_on_shebangs_as_per_Debian_Policy_?=
+ =?utf-8?q?=C2=A7_10=2E4?=
+
+Forwarded: not-needed
+
+===================================================================
+---
+ support/cvs2includes      | 2 +-
+ support/file-attr-restore | 2 +-
+ support/files-to-excludes | 2 +-
+ support/logfilter         | 2 +-
+ support/lsh               | 2 +-
+ support/mnt-excl          | 2 +-
+ support/rsyncstats        | 2 +-
+ 7 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/support/cvs2includes b/support/cvs2includes
+index 4a0d1d8..62401cb 100755
+--- a/support/cvs2includes
++++ b/support/cvs2includes
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python3
++#!/usr/bin/python3
+ # This script finds all CVS/Entries files in the current directory and below
+ # and creates a local .cvsinclude file with non-inherited rules including each
+ # checked-in file.  Then, use this option whenever using --cvs-exclude (-C):
+diff --git a/support/file-attr-restore b/support/file-attr-restore
+index 2e4a21b..a053e1d 100755
+--- a/support/file-attr-restore
++++ b/support/file-attr-restore
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # This script will parse the output of "find ARG [ARG...] -ls" and
+ # apply (at your discretion) the permissions, owner, and group info
+ # it reads onto any existing files and dirs (it doesn't try to affect
+diff --git a/support/files-to-excludes b/support/files-to-excludes
+index a47d7f8..bb5c3a8 100755
+--- a/support/files-to-excludes
++++ b/support/files-to-excludes
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python3
++#!/usr/bin/python3
+ # This script takes an input of filenames and outputs a set of include/exclude
+ # directives that can be used by rsync to copy just the indicated files using
+ # an --exclude-from=FILE or -f'. FILE' option. To be able to delete files on
+diff --git a/support/logfilter b/support/logfilter
+index 29cfe69..282914a 100755
+--- a/support/logfilter
++++ b/support/logfilter
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Filter the rsync daemon log messages by module name.  The log file can be
+ # in either syslog format or rsync's own log-file format.  Note that the
+ # MODULE_NAME parameter is used in a regular-expression match in order to
+diff --git a/support/lsh b/support/lsh
+index 7b3c065..228d760 100755
+--- a/support/lsh
++++ b/support/lsh
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # This is a "local shell" command that works like a remote shell but only for
+ # the local host.  See the usage message for more details.
+ 
+diff --git a/support/mnt-excl b/support/mnt-excl
+index bc8b5bc..8f5f9ef 100755
+--- a/support/mnt-excl
++++ b/support/mnt-excl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python3
++#!/usr/bin/python3
+ # This script takes a command-line arg of a source directory
+ # that will be passed to rsync, and generates a set of excludes
+ # that will exclude all mount points from the list.  This is
+diff --git a/support/rsyncstats b/support/rsyncstats
+index 99fd545..ab7246d 100755
+--- a/support/rsyncstats
++++ b/support/rsyncstats
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ #
+ # This script parses the default logfile format produced by rsync when running
+ # as a daemon with transfer logging enabled.  It also parses a slightly tweaked

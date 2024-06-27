@@ -4,7 +4,7 @@
  * Copyright (C) 1996 Andrew Tridgell
  * Copyright (C) 1996 Paul Mackerras
  * Copyright (C) 2001, 2002 Martin Pool <mbp@samba.org>
- * Copyright (C) 2002-2022 Wayne Davison
+ * Copyright (C) 2002-2023 Wayne Davison
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2367,7 +2367,7 @@ struct file_list *send_file_list(int f, int argc, char *argv[])
 		}
 
 		dirlen = dir ? strlen(dir) : 0;
-		if (dirlen != lastdir_len || memcmp(lastdir, dir, dirlen) != 0) {
+		if (dirlen != lastdir_len || (dirlen && memcmp(lastdir, dir, dirlen) != 0)) {
 			if (!change_pathname(NULL, dir, -dirlen))
 				goto bad_path;
 			lastdir = pathname;
@@ -2659,7 +2659,7 @@ struct file_list *recv_file_list(int f, int dir_ndx)
 		} else if (S_ISLNK(file->mode))
 			stats.num_symlinks++;
 		else if (IS_DEVICE(file->mode))
-			stats.num_symlinks++;
+			stats.num_devices++;
 		else
 			stats.num_specials++;
 
