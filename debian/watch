@@ -1,3 +1,7 @@
 version=4
-opts="pgpsigurlmangle=s/$/.asc/" \
+opts="pgpsigurlmangle=s/$/.asc/, \
+      filenamemangle=s%v?@ANY_VERSION@%@PACKAGE@-$1.tar.gz%,\
+      uversionmangle=s/(\d)[_\.\-\+]?((RC|rc|pre|dev|beta|alpha|a|b)\d*)$/$1~$2/, \
+      dversionmangle=s/@DEB_EXT@//, \
+      repacksuffix=+ds1" \
 https://rsync.samba.org/ftp/rsync/ rsync-(\d\S+)\.tar\.gz
