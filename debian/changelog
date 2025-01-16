@@ -1,3 +1,14 @@
+rsync (3.3.0+ds1-4) unstable; urgency=critical
+
+  [ Salvatore Bonaccorso ]
+  * Fix FLAG_GOT_DIR_FLIST collission with FLAG_HLINKED
+    (Closes: #1093089, #1093052)
+
+  [ Samuel Henrique ]
+  * d/p/Fix_use-after-free_in_generator: New patch to fix UAF
+
+ -- Samuel Henrique <samueloph@debian.org>  Wed, 15 Jan 2025 18:34:49 +0000
+
 rsync (3.3.0+ds1-3) unstable; urgency=critical
 
   * Import upstream patches for CVE-2024-12084, CVE-2024-12085,
