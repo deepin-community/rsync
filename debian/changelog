@@ -1,3 +1,34 @@
+rsync (3.4.1+ds1-7) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Arnaud Rebillout ]
+  * d/control: Switch back to python3-cmarkgfm for all architectures
+
+  [ Matheus Polkorny ]
+  * d/p/CVE-2025-10158.patch: Import upstream patch to fix CVE-2025-10158
+
+    A malicious client acting as the receiver of an rsync file transfer
+    can trigger an out of bounds read of a heap based buffer,
+    via a negative array index. (Closes: #1121442)
+
+ -- Matheus Polkorny <mpolkorny@gmail.com>  Thu, 27 Nov 2025 21:01:55 -0300
+
+rsync (3.4.1+ds1-6) unstable; urgency=medium
+
+  [ Samuel Henrique ]
+  * d/p/reproducible-build.patch: New patch to fix reproducible builds, thanks
+    to lamby (closes: #1093201)
+  * gcc_15.patch: New patch to support building with GCC 15 (closes: #1097811)
+
+  [ Arnaud Rebillout ]
+  * d/tests/remote-tests: start the SSH service if ever it's not up
+
+  [ Alex ]
+  * d/tests/local-tests: remove test skip
+
+ -- Samuel Henrique <samueloph@debian.org>  Wed, 22 Oct 2025 19:22:21 +0100
+
 rsync (3.4.1+ds1-5) unstable; urgency=medium
 
   * Team upload.

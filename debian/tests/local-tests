@@ -66,7 +66,6 @@ testMtimeSyncForFileIfTargetNewer() {
 }
 
 testMtimeSyncForFileIfTargetNewerUpdate(){
-    startSkipping  # FIXME: remove skipping once 285 <= diffoscope > 300 (in all suites?)
     echo foo > src
     cp src target
     touch -d "next minute" target
@@ -76,7 +75,6 @@ testMtimeSyncForFileIfTargetNewerUpdate(){
     $DIFF_CMD --exclude-directory-metadata=no src target 2>&1
     status=$?
     assertFalse 'Failed mtime sync for newer target with -u flag' $status
-    endSkipping
 }
 
 testChecksumFileComparison() {
