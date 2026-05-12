@@ -6,3 +6,4 @@ fix-flaky-hardlinks-test.patch
 reproducible-build.patch
 gcc_15.patch
 CVE-2025-10158.patch
+CVE-2026-41035.patch

@@ -1,3 +1,13 @@
+rsync (3.4.1+ds1-8) unstable; urgency=medium
+
+  * d/p/CVE-2026-41035.patch: Import upstream patch to fix CVE-2026-41035
+
+    In rsync 3.0.1 through 3.4.1, receive_xattr relies on an untrusted
+    length value during a qsort call, leading to a receiver use-after-free.
+    (Closes: #1134617)
+
+ -- hudeng <hudeng@deepin.org>  Sun, 11 May 2026 10:52:00 +0800
+
 rsync (3.4.1+ds1-7) unstable; urgency=medium
 
   * Team upload.
