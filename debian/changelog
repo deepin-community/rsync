@@ -1,4 +1,4 @@
-rsync (3.4.1+ds1-8) unstable; urgency=medium
+rsync (3.4.1+ds1-7deepin1) unstable; urgency=medium
 
   * d/p/CVE-2026-41035.patch: Import upstream patch to fix CVE-2026-41035
 
