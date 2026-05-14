@@ -1,4 +1,4 @@
-.TH "rsyncd.conf" "5" "15 Jan 2025" "rsyncd.conf from rsync 3.4.1" "User Commands"
+.TH "rsyncd.conf" "5" "28 Apr 2026" "rsyncd.conf from rsync 3.4.2" "User Commands"
 .\" prefix=/usr
 .P
 .SH "NAME"
@@ -241,7 +241,7 @@ parameter.
 When rsync is sanitizing paths, it trims ".." path elements from args that
 it believes would escape the module hierarchy. It also substitutes leading
 slashes in absolute paths with the module's path (so that options such as
-\fB\-\-backup-dir\fP & \fB\-\-compare-dest\fP interpret an absolute path as rooted in
+\fB\-\-backup\-dir\fP & \fB\-\-compare\-dest\fP interpret an absolute path as rooted in
 the module's "path" dir).
 .IP
 When a chroot is in effect \fIand\fP the "name converter" parameter is
@@ -310,7 +310,7 @@ just use it as documentation to implement your own.
 Enabling this parameter disables the mapping of users and groups by name
 for the current daemon module.  This prevents the daemon from trying to
 load any user/group-related files or libraries.  This enabling makes the
-transfer behave as if the client had passed the \fB\-\-numeric-ids\fP
+transfer behave as if the client had passed the \fB\-\-numeric\-ids\fP
 command-line option.  By default, this parameter is enabled for chroot
 modules and disabled for non-chroot modules.  Also keep in mind that
 uid/gid preservation requires the module to be running as root (see "uid")
@@ -322,7 +322,7 @@ that the module has the necessary resources it needs to translate names and
 that it is not possible for a user to change those resources.
 .IP "\fBmunge\ symlinks\fP"
 This parameter tells rsync to modify all symlinks in the same way as the
-(non-daemon-affecting) \fB\-\-munge-links\fP command-line option (using a method
+(non-daemon-affecting) \fB\-\-munge\-links\fP command-line option (using a method
 described below).  This should help protect your files from user trickery
 when your daemon module is writable.  The default is disabled when
 "use chroot" is on with an inside-chroot path of "/", OR if "daemon chroot"
@@ -389,7 +389,7 @@ If the daemon fails to open the specified file, it will fall back to using
 syslog and output an error about the failure.  (Note that the failure to
 open the specified log file used to be a fatal error.)
 .IP
-This setting can be overridden by using the \fB\-\-log-file=FILE\fP or
+This setting can be overridden by using the \fB\-\-log\-file=FILE\fP or
 \fB\-\-dparam=logfile=FILE\fP command-line options.  The former overrides all the
 log-file parameters of the daemon and all module settings.  The latter sets
 the daemon's log file and the default for all the modules, which still
@@ -464,7 +464,7 @@ When set to False, this parameters ensures that files on the server are not
 opened with O_NOATIME.
 .IP
 When set to Unset (the default) the user controls the setting via
-\fB\-\-open-noatime\fP.
+\fB\-\-open\-noatime\fP.
 .IP "\fBlist\fP"
 This parameter determines whether this module is listed when the client
 asks for a listing of available modules.  In addition, if this is false,
@@ -519,7 +519,7 @@ usually runs as group root, and when this is left unset, the group is left
 unchanged. See also the "gid" parameter.
 .IP "\fBfake\ super\fP"
 Setting "fake super = yes" for a module causes the daemon side to behave as
-if the \fB\-\-fake-super\fP command-line option had been specified.  This allows
+if the \fB\-\-fake\-super\fP command-line option had been specified.  This allows
 the full attributes of a file to be stored without having to have the
 daemon actually running as root.
 .IP "\fBfilter\fP"
@@ -793,7 +793,7 @@ specified between the percent and the escape letter (e.g.
 "\fB%\-50n\ %8l\ %07p\fP").  In addition, one or more apostrophes may be specified
 prior to a numerical escape to indicate that the numerical value should be
 made more human-readable.  The 3 supported levels are the same as for the
-\fB\-\-human-readable\fP command-line option, though the default is for
+\fB\-\-human\-readable\fP command-line option, though the default is for
 human-readability to be off.  Each added apostrophe increases the level
 (e.g. "\fB%''l\ %'b\ %f\fP").
 .IP
@@ -820,7 +820,7 @@ protocols/versions, the checksum was salted, and is thus not a useful
 value (and is not displayed when that is the case). For the checksum to
 output for a file, either the \fB\-\-checksum\fP option must be in-effect or
 the file must have been transferred without a salted checksum being used.
-See the \fB\-\-checksum-choice\fP option for a way to choose the algorithm.
+See the \fB\-\-checksum\-choice\fP option for a way to choose the algorithm.
 .IP o
 %f the filename (long form on sender; no trailing "/")
 .IP o
@@ -856,7 +856,7 @@ the trailing period)
 .RE
 .IP
 For a list of what the characters mean that are output by "%i", see the
-\fB\-\-itemize-changes\fP option in the rsync manpage.
+\fB\-\-itemize\-changes\fP option in the rsync manpage.
 .IP
 Note that some of the logged output changes when talking with older rsync
 versions.  For instance, deleted files were only output as verbose messages
@@ -909,7 +909,7 @@ refuse options = * !a !v !compress*
 .RE
 .IP
 Don't worry that the "\fB*\fP" will refuse certain vital options such as
-\fB\-\-dry-run\fP, \fB\-\-server\fP, \fB\-\-no-iconv\fP, \fB\-\-seclude-args\fP, etc. These
+\fB\-\-dry\-run\fP, \fB\-\-server\fP, \fB\-\-no\-iconv\fP, \fB\-\-seclude\-args\fP, etc. These
 important options are not matched by wild-card, so they must be overridden
 by their exact name.  For instance, if you're forcing iconv transfers you
 could use something like this:
@@ -930,8 +930,8 @@ rsync client ever sends the actual archive option to the server.
 As an additional safety feature, the refusal of "delete" also refuses
 \fBremove-source-files\fP when the daemon is the sender; if you want the latter
 without the former, instead refuse "\fBdelete-*\fP" as that refuses all the
-delete modes without affecting \fB\-\-remove-source-files\fP. (Keep in mind that
-the client's \fB\-\-delete\fP option typically results in \fB\-\-delete-during\fP.)
+delete modes without affecting \fB\-\-remove\-source\-files\fP. (Keep in mind that
+the client's \fB\-\-delete\fP option typically results in \fB\-\-delete\-during\fP.)
 .IP
 When un-refusing delete options, you should either specify "\fB!delete*\fP" (to
 accept all delete options) or specify a limited set that includes "delete",
@@ -943,7 +943,7 @@ refuse options = * !a !delete !delete-during
 .fi
 .RE
 .IP
-\&... whereas this accepts any delete option except \fB\-\-delete-after\fP:
+\&... whereas this accepts any delete option except \fB\-\-delete\-after\fP:
 .RS 4
 .IP
 .nf
@@ -958,7 +958,7 @@ instead of returning an error that forces the client to remove the \fB\-z\fP
 option.
 .IP
 If you are un-refusing the compress option, you may want to match
-"\fB!compress*\fP" if you also want to allow the \fB\-\-compress-level\fP option.
+"\fB!compress*\fP" if you also want to allow the \fB\-\-compress\-level\fP option.
 .IP
 Note that the "copy-devices" & "write-devices" options are refused by
 default, but they can be explicitly accepted with "\fB!copy-devices\fP" and/or
@@ -973,27 +973,27 @@ Here are all the options that are not matched by wild-cards:
 .IP o
 \fB\-\-rsh\fP, \fB\-e\fP: Required to convey compatibility flags to the server.
 .IP o
-\fB\-\-out-format\fP: This is required to convey output behavior to a remote
-receiver.  While rsync passes the older alias \fB\-\-log-format\fP for
+\fB\-\-out\-format\fP: This is required to convey output behavior to a remote
+receiver.  While rsync passes the older alias \fB\-\-log\-format\fP for
 compatibility reasons, this options should not be confused with
-\fB\-\-log-file-format\fP.
+\fB\-\-log\-file\-format\fP.
 .IP o
 \fB\-\-sender\fP: Use "write only" parameter instead of refusing this.
 .IP o
-\fB\-\-dry-run\fP, \fB\-n\fP: Who would want to disable this?
+\fB\-\-dry\-run\fP, \fB\-n\fP: Who would want to disable this?
 .IP o
-\fB\-\-seclude-args\fP, \fB\-s\fP: Is the oldest arg-protection method.
+\fB\-\-seclude\-args\fP, \fB\-s\fP: Is the oldest arg-protection method.
 .IP o
-\fB\-\-from0\fP, \fB\-0\fP: Makes it easier to accept/refuse \fB\-\-files-from\fP without
+\fB\-\-from0\fP, \fB\-0\fP: Makes it easier to accept/refuse \fB\-\-files\-from\fP without
 affecting this helpful modifier.
 .IP o
 \fB\-\-iconv\fP: This is auto-disabled based on "charset" parameter.
 .IP o
-\fB\-\-no-iconv\fP: Most transfers use this option.
+\fB\-\-no\-iconv\fP: Most transfers use this option.
 .IP o
-\fB\-\-checksum-seed\fP: Is a fairly rare, safe option.
+\fB\-\-checksum\-seed\fP: Is a fairly rare, safe option.
 .IP o
-\fB\-\-write-devices\fP: Is non-wild but also auto-disabled.
+\fB\-\-write\-devices\fP: Is non-wild but also auto-disabled.
 .RE
 .IP "\fBdont\ compress\fP"
 \fBNOTE:\fP This parameter currently has no effect except in one instance: if
@@ -1015,7 +1015,7 @@ for those files.  If an algorithms has the ability to change the level in
 mid-stream, it will be minimized to reduce the CPU usage as much as
 possible.
 .IP
-See the \fB\-\-skip-compress\fP parameter in the \fBrsync\fP(1) manpage for the
+See the \fB\-\-skip\-compress\fP parameter in the \fBrsync\fP(1) manpage for the
 list of file suffixes that are skipped by default if this parameter is not
 set.
 .IP "\fBearly\ exec\fP, \fBpre-xfer\ exec\fP, \fBpost-xfer\ exec\fP"
@@ -1027,14 +1027,14 @@ before it begins.  Any output from the \fBpre-xfer\ exec\fP command on stdout
 \fInot\fP displayed if the script returns success.  The other programs cannot
 send any text to the user.  All output except for the \fBpre-xfer\ exec\fP
 stdout goes to the corresponding daemon's stdout/stderr, which is typically
-discarded.  See the \fB\-\-no-detach\fP option for a way to see the daemon's
+discarded.  See the \fB\-\-no\-detach\fP option for a way to see the daemon's
 output, which can assist with debugging.
 .IP
 Note that the \fBearly\ exec\fP command runs before any part of the transfer
 request is known except for the module name.  This helper script can be
 used to setup a disk mount or decrypt some data into a module dir, but you
 may need to use \fBlock\ file\fP and \fBmax\ connections\fP to avoid concurrency
-issues.  If the client rsync specified the \fB\-\-early-input=FILE\fP option, it
+issues.  If the client rsync specified the \fB\-\-early\-input=FILE\fP option, it
 can send up to about 5K of data to the stdin of the early script.  The
 stdin will otherwise be empty.
 .IP
@@ -1088,6 +1088,13 @@ These settings honor 2 environment variables: use RSYNC_SHELL to set a
 shell to use when running the command (which otherwise uses your
 \fBsystem()\fP call's default shell), and use RSYNC_NO_XFER_EXEC to disable
 both options completely.
+.IP "\fBtemp\ dir\fP"
+Specifies a directory that rsync should use for temporary files created
+during the transfer of updated files. If that directory is on a different
+partition, after transfer file is being copied instead of unlinked.
+.IP
+This parameter equals with \fB\-\-temp\-dir\fP option, so please consult rsync
+manpage for further information.
 .P
 .SH "CONFIG DIRECTIVES"
 .P
@@ -1298,7 +1305,7 @@ Please report bugs! The rsync bug tracking system is online at
 .P
 .SH "VERSION"
 .P
-This manpage is current for version 3.4.1 of rsync.
+This manpage is current for version 3.4.2 of rsync.
 .P
 .SH "CREDITS"
 .P

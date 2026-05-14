@@ -1030,6 +1030,14 @@ shell to use when running the command (which otherwise uses your
 <strong>system()</strong> call's default shell), and use RSYNC_NO_XFER_EXEC to disable
 both options completely.</p>
 </dd>
+
+<dt id="temp_dir"><code>temp dir</code><a href="#temp_dir" class="tgt"></a></dt><dd>
+<p>Specifies a directory that rsync should use for temporary files created
+during the transfer of updated files. If that directory is on a different
+partition, after transfer file is being copied instead of unlinked.</p>
+<p>This parameter equals with <code>--temp-dir</code> option, so please consult rsync
+manpage for further information.</p>
+</dd>
 </dl>
 <h2 id="CONFIG_DIRECTIVES">CONFIG DIRECTIVES<a href="#CONFIG_DIRECTIVES" class="tgt"></a></h2>
 <p>There are currently two config directives available that allow a config file to
@@ -1191,7 +1199,7 @@ susan:herpass
 <p>Please report bugs! The rsync bug tracking system is online at
 <a href="https://rsync.samba.org/">https://rsync.samba.org/</a>.</p>
 <h2 id="VERSION">VERSION<a href="#VERSION" class="tgt"></a></h2>
-<p>This manpage is current for version 3.4.1 of rsync.</p>
+<p>This manpage is current for version 3.4.2 of rsync.</p>
 <h2 id="CREDITS">CREDITS<a href="#CREDITS" class="tgt"></a></h2>
 <p>Rsync is distributed under the GNU General Public License.  See the file
 <a href="COPYING">COPYING</a> for details.</p>
@@ -1205,5 +1213,5 @@ Thanks to Karsten Thygesen for his many suggestions and documentation!</p>
 people from around the world have helped to maintain and improve it.</p>
 <p>Mailing lists for support and development are available at
 <a href="https://lists.samba.org/">https://lists.samba.org/</a>.</p>
-<div style="float: right"><p><i>15 Jan 2025</i></p></div>
+<div style="float: right"><p><i>28 Apr 2026</i></p></div>
 </body></html>

@@ -505,6 +505,7 @@ has its own detailed description later in this manpage.</p>
 --compress, -z           compress file data during the transfer
 --compress-choice=STR    choose the compression algorithm (aka --zc)
 --compress-level=NUM     explicitly set compression level (aka --zl)
+--compress-threads=NUM   explicitly set compression threads (aka --zt)
 --skip-compress=LIST     skip compressing files with suffix in LIST
 --cvs-exclude, -C        auto-ignore files in the same way CVS does
 --filter=RULE, -f        add a file-filtering RULE
@@ -1812,7 +1813,7 @@ at the destination will be automatically disabled.  This is to prevent
 temporary filesystem failures (such as NFS errors) on the sending side from
 causing a massive deletion of files on the destination.  You can override
 this with the <a href="#opt--ignore-errors"><code>--ignore-errors</code></a> option.</p>
-<p>The <code>--delete</code> option may be combined with one of the -&#8288;-&#8288;delete-WHEN options
+<p>The <code>--delete</code> option may be combined with one of the -&#8288;-&#8288;delete-&#8288;WHEN options
 without conflict, as well as <a href="#opt--delete-excluded"><code>--delete-excluded</code></a>.  However, if none
 of the <code>--delete-WHEN</code> options are specified, rsync will choose the
 <a href="#opt--delete-during"><code>--delete-during</code></a> algorithm when talking to rsync 3.0.0 or newer,
@@ -2629,6 +2630,20 @@ compression level no matter what algorithm was chosen.</p>
 <a href="#opt--debug"><code>--debug=nstr</code></a> to see the &quot;negotiated string&quot; results.  This will
 report something like &quot;<code>Client compress: zstd (level 3)</code>&quot; (along with the
 checksum choice in effect).</p>
+</dd>
+
+<span id="opt--zt"></span><dt id="opt--compress-threads"><code>--compress-threads=NUM</code>, <code>--zt=NUM</code><a href="#opt--compress-threads" class="tgt"></a></dt><dd>
+<p>Set the number of threads to spawn when compressing data. Setting this
+option to 1 or more will instruct the compression library to spawn 1 or
+more threads for compression. Ideally, increasing the number of threads
+will increase transfer speed if the transfer is CPU bound on the sender.</p>
+<p>This option does not affect decompression.</p>
+<p>Compression algorithms that allow threading:</p>
+<ul>
+<li><code>zstd</code> (only when libzstd is compiled with threading support)</li>
+</ul>
+<p>This option is ignored if one of the above alogithms is not selected as the
+<code>--compression-choice</code> or if compression not enabled.</p>
 </dd>
 
 <dt id="opt--skip-compress"><code>--skip-compress=LIST</code><a href="#opt--skip-compress" class="tgt"></a></dt><dd>
@@ -4352,7 +4367,7 @@ file is included or excluded.</p>
 <li><strong>22</strong> -&#8288; Error allocating core memory buffers</li>
 <li><strong>23</strong> -&#8288; Partial transfer due to error</li>
 <li><strong>24</strong> -&#8288; Partial transfer due to vanished source files</li>
-<li><strong>25</strong> -&#8288; The -&#8288;-&#8288;max-delete limit stopped deletions</li>
+<li><strong>25</strong> -&#8288; The -&#8288;-&#8288;max-&#8288;delete limit stopped deletions</li>
 <li><strong>30</strong> -&#8288; Timeout in data send/receive</li>
 <li><strong>35</strong> -&#8288; Timeout waiting for daemon connection</li>
 </ul>
@@ -4479,7 +4494,7 @@ the comments on the <a href="#opt--modify-window"><code>--modify-window</code></
 </ul>
 <p>Please report bugs! See the web site at <a href="https://rsync.samba.org/">https://rsync.samba.org/</a>.</p>
 <h2 id="VERSION">VERSION<a href="#VERSION" class="tgt"></a></h2>
-<p>This manpage is current for version 3.4.1 of rsync.</p>
+<p>This manpage is current for version 3.4.2 of rsync.</p>
 <h2 id="INTERNAL_OPTIONS">INTERNAL OPTIONS<a href="#INTERNAL_OPTIONS" class="tgt"></a></h2>
 <p>The options <code>--server</code> and <code>--sender</code> are used internally by rsync, and should
 never be typed by a user under normal circumstances.  Some awareness of these
@@ -4509,5 +4524,5 @@ David Bell.  I've probably missed some people, my apologies if I have.</p>
 people from around the world have helped to maintain and improve it.</p>
 <p>Mailing lists for support and development are available at
 <a href="https://lists.samba.org/">https://lists.samba.org/</a>.</p>
-<div style="float: right"><p><i>15 Jan 2025</i></p></div>
+<div style="float: right"><p><i>28 Apr 2026</i></p></div>
 </body></html>
