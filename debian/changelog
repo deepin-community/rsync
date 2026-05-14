@@ -1,12 +1,27 @@
-rsync (3.4.1+ds1-7deepin1) unstable; urgency=medium
+rsync (3.4.2+ds1-2) unstable; urgency=medium
 
-  * d/p/CVE-2026-41035.patch: Import upstream patch to fix CVE-2026-41035
+  * d/p/syscall_use_openat2...: New patch to fix symlink handling on the
+    receiver (closes: #1093160)
 
-    In rsync 3.0.1 through 3.4.1, receive_xattr relies on an untrusted
-    length value during a qsort call, leading to a receiver use-after-free.
-    (Closes: #1134617)
+ -- Samuel Henrique <samueloph@debian.org>  Thu, 30 Apr 2026 09:50:10 -0300
 
- -- hudeng <hudeng@deepin.org>  Sun, 11 May 2026 10:52:00 +0800
+rsync (3.4.2+ds1-1) unstable; urgency=medium
+
+  [ Samuel Henrique ]
+  * New upstream version 3.4.2+ds1
+    - Fix CVE-2026-41035 (closes: #1134617)
+  * Drop patches merged upstream.
+     - fix-flaky-hardlinks-test.patch
+     - reproducible-build.patch
+     - gcc_15.patch
+     - CVE-2025-10158.patch
+  * d/copyright: runtests.sh was refactored to runtests.py
+  * d/t/upstream-tests: runtests.sh was refactored to runtests.py
+
+  [ Alexandre Detiste ]
+  * delete d/rules-pre-dh that shows up on Debian Code Search
+
+ -- Samuel Henrique <samueloph@debian.org>  Wed, 29 Apr 2026 11:58:29 -0300
 
 rsync (3.4.1+ds1-7) unstable; urgency=medium
 

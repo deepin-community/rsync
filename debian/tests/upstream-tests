@@ -8,4 +8,4 @@ debian/rules override_dh_auto_configure
 make tls getgroups getfsdev trimslash t_unsafe wildtest testrun 2>/dev/null
 
 # Run tests
-rsync_bin="/usr/bin/rsync" ./runtests.sh
+rsync_bin="/usr/bin/rsync" ./runtests.py

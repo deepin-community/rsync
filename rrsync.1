@@ -1,4 +1,4 @@
-.TH "rrsync" "1" "15 Jan 2025" "rrsync from rsync 3.4.1" "User Commands"
+.TH "rrsync" "1" "28 Apr 2026" "rrsync from rsync 3.4.2" "User Commands"
 .\" prefix=/usr
 .P
 .SH "NAME"
@@ -81,13 +81,13 @@ Allow only reading from the DIR. Implies \fB\-no-del\fP and
 .IP "\fB\-wo\fP"
 Allow only writing to the DIR.
 .IP "\fB\-munge\fP"
-Enable rsync's \fB\-\-munge-links\fP on the server side.
+Enable rsync's \fB\-\-munge\-links\fP on the server side.
 .IP "\fB\-no-del\fP"
 Disable rsync's \fB\-\-delete*\fP and \fB\-\-remove*\fP options.
 .IP "\fB\-no-lock\fP"
 Avoid the single-run (per-user) lock check.  Useful with \fB\-munge\fP.
 .IP "\fB\-no-overwrite\fP"
-Enforce \fB\-\-ignore-existing\fP on the server. Prevents overwriting existing
+Enforce \fB\-\-ignore\-existing\fP on the server. Prevents overwriting existing
 files when the server is the receiver.
 .IP "\fB\-help\fP, \fB\-h\fP"
 Output this help message and exit.
@@ -97,13 +97,13 @@ Output this help message and exit.
 The rrsync script validates the path arguments it is sent to try to restrict
 them to staying within the specified DIR.
 .P
-The rrsync script rejects rsync's \fB\-\-copy-links\fP option (by
+The rrsync script rejects rsync's \fB\-\-copy\-links\fP option (by
 default) so that a copy cannot dereference a symlink within the DIR to get to a
 file outside the DIR.
 .P
-The rrsync script rejects rsync's \fB\-\-protect-args\fP (\fB\-s\fP) option
+The rrsync script rejects rsync's \fB\-\-protect\-args\fP (\fB\-s\fP) option
 because it would allow options to be sent to the server-side that the script
-cannot check.  If you want to support \fB\-\-protect-args\fP, use a daemon-over-ssh
+cannot check.  If you want to support \fB\-\-protect\-args\fP, use a daemon-over-ssh
 setup.
 .P
 The rrsync script accepts just a subset of rsync's options that the real rsync
@@ -155,7 +155,7 @@ command="rrsync -ro results" ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAIEAmk...
 .P
 .SH "VERSION"
 .P
-This manpage is current for version 3.4.1 of rsync.
+This manpage is current for version 3.4.2 of rsync.
 .P
 .SH "CREDITS"
 .P
