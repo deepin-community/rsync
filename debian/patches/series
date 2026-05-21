@@ -2,4 +2,3 @@ disable_reconfigure_req.diff
 skip_devices_test_non_linux.patch
 env_shebang.patch
 fix_rrsync_man_generation.patch
-syscall_use_openat2_RESOLVE_BENEATH_on_Linux_for_secure_relative_open.patch
