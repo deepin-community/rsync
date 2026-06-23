@@ -83,6 +83,65 @@ static int updating_basis_or_equiv;
 #define MAX_UNIQUE_NUMBER 999999
 #define MAX_UNIQUE_LOOP 100
 
+/* Open a basis/output path that may legitimately be an operator-trusted
+ * ABSOLUTE path -- e.g. an absolute --partial-dir ("a directory reserved for
+ * partial-dir work") or --backup-dir. secure_relative_open() deliberately
+ * rejects an absolute relpath, so feeding it the whole absolute partialptr
+ * (with a NULL basedir) returns EINVAL: the basis fd is then -1, no basis is
+ * mapped, and receive_data() omits every matched block from the whole-file
+ * verification checksum -> a spurious "failed verification" that strands the
+ * (correct) data in the partial-dir forever.
+ *
+ * The operator's directory is trusted; only the leaf basename is peer-supplied.
+ * So when basedir is NULL and relpath is absolute, split it into its directory
+ * (trusted) and leaf and confine just the leaf -- exactly how secure_relative_
+ * open already trusts an absolute basedir while O_NOFOLLOW-confining the leaf.
+ * Anything else is a straight pass-through that preserves the strict contract. */
+static int secure_basis_open(const char *basedir, const char *relpath, int flags, mode_t mode)
+{
+	extern int am_daemon, am_chrooted;
+
+	/* The confined resolver is only needed for the sanitizing daemon
+	 * (am_daemon && !am_chrooted, i.e. use_secure_symlinks).  Local /
+	 * remote-shell mode has no module boundary, and "use chroot = yes" makes
+	 * the kernel root the boundary, so there an alt-dest basis like
+	 * --link-dest=../01 must resolve against the cwd as a bare open did before
+	 * the hardening (confining it would reject the legitimate sibling "..",
+	 * #915). */
+	if (!am_daemon || am_chrooted) {
+		if (basedir) {
+			char fullpath[MAXPATHLEN];
+			if (pathjoin(fullpath, sizeof fullpath, basedir, relpath) >= sizeof fullpath) {
+				errno = ENAMETOOLONG;
+				return -1;
+			}
+			return do_open(fullpath, flags, mode);
+		}
+		return do_open(relpath, flags, mode);
+	}
+
+	if (!basedir && relpath && *relpath == '/') {
+		const char *slash = strrchr(relpath, '/');
+		const char *leaf = slash + 1;
+		char dirbuf[MAXPATHLEN];
+		const char *dir;
+		if (slash == relpath)
+			dir = "/";
+		else {
+			size_t dlen = slash - relpath;
+			if (dlen >= sizeof dirbuf) {
+				errno = ENAMETOOLONG;
+				return -1;
+			}
+			memcpy(dirbuf, relpath, dlen);
+			dirbuf[dlen] = '\0';
+			dir = dirbuf;
+		}
+		return secure_relative_open(dir, leaf, flags, mode);
+	}
+	return secure_relative_open(basedir, relpath, flags, mode);
+}
+
 /* get_tmpname() - create a tmp filename for a given filename
  *
  * If a tmpdir is defined, use that as the directory to put it in.  Otherwise,
@@ -363,6 +422,34 @@ static int receive_data(int f_in, char *fname_r, int fd_r, OFF_T size_r,
 			len = sum.remainder;
 
 		stats.matched_data += len;
+
+		/* A block match with no mapped basis is a protocol inconsistency
+		 * ONLY when we are actually producing output (fd != -1): the
+		 * generator told the sender a basis existed but the receiver could
+		 * not open it, so honoring the match would silently omit these
+		 * bytes from the verification checksum (a spurious failure) or
+		 * leave a hole in the output. Fail cleanly in that case.
+		 *
+		 * On the DISCARD path (fd == -1, fname == NULL) there is no output
+		 * and no verification: discard_receive_data() deliberately drains a
+		 * delta the receiver never intends to write (basis fstat failed,
+		 * basis is a directory, output open failed, batch skip, ...). The
+		 * sender does not know the data is being discarded and streams an
+		 * ordinary delta, so a match token here is NORMAL protocol, not
+		 * malformed. Absorb it benignly (advance the offset and continue),
+		 * as the pre-existing "if (mapbuf)" guards did before this check was
+		 * added in 31fbb17d -- erroring would wrongly break legitimate
+		 * transfers, and full_fname(fname) with fname==NULL would
+		 * dereference NULL (a receiver crash on a normal transfer). */
+		if (!mapbuf) {
+			if (fd != -1) {
+				rprintf(FERROR, "got a block match with no basis file for %s [%s]\n",
+					full_fname(fname), who_am_i());
+				exit_cleanup(RERR_PROTOCOL);
+			}
+			offset += len;
+			continue;
+		}
 
 		if (DEBUG_GTE(DELTASUM, 3)) {
 			rprintf(FINFO,
@@ -793,8 +880,9 @@ int recv_files(int f_in, int f_out, char *local_name)
 				fnamecmp = fname;
 		}
 
-		/* open the file */
-		fd1 = secure_relative_open(basedir, fnamecmp, O_RDONLY, 0);
+		/* open the file (secure_basis_open tolerates an operator-trusted
+		 * absolute fnamecmp, e.g. an absolute --partial-dir basis) */
+		fd1 = secure_basis_open(basedir, fnamecmp, O_RDONLY, 0);
 
 		if (fd1 == -1 && protocol_version < 29) {
 			if (fnamecmp != fname) {
@@ -808,7 +896,7 @@ int recv_files(int f_in, int f_out, char *local_name)
 				basedir = basis_dir[0];
 				fnamecmp = fname;
 				fnamecmp_type = FNAMECMP_BASIS_DIR_LOW;
-				fd1 = secure_relative_open(basedir, fnamecmp, O_RDONLY, 0);
+				fd1 = secure_basis_open(basedir, fnamecmp, O_RDONLY, 0);
 			}
 		}
 
@@ -884,7 +972,7 @@ int recv_files(int f_in, int f_out, char *local_name)
 			 * attacker could switch a directory to a symlink between
 			 * path validation and file open. */
 			if (use_secure_symlinks)
-				fd2 = secure_relative_open(NULL, fnametmp, O_WRONLY|O_CREAT, 0600);
+				fd2 = secure_basis_open(NULL, fnametmp, O_WRONLY|O_CREAT, 0600);
 			else
 				fd2 = do_open(fnametmp, O_WRONLY|O_CREAT, 0600);
 #ifdef linux

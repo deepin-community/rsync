@@ -296,8 +296,14 @@
 /* Define to 1 if you have the 'mkfifo' function. */
 #undef HAVE_MKFIFO
 
+/* Define to 1 if you have the 'mkfifoat' function. */
+#undef HAVE_MKFIFOAT
+
 /* Define to 1 if you have the 'mknod' function. */
 #undef HAVE_MKNOD
+
+/* Define to 1 if you have the 'mknodat' function. */
+#undef HAVE_MKNODAT
 
 /* Define to 1 if you have the 'mkstemp64' function. */
 #undef HAVE_MKSTEMP64
@@ -337,6 +343,10 @@
 
 /* Define to 1 if you have the 'open64' function. */
 #undef HAVE_OPEN64
+
+/* Define to use Linux openat2(RESOLVE_BENEATH) in secure_relative_open where
+   available. */
+#undef HAVE_OPENAT2
 
 /* Define to 1 if you have the <openssl/md4.h> header file. */
 #undef HAVE_OPENSSL_MD4_H

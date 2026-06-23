@@ -7558,6 +7558,52 @@ rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
 CFLAGS="$OLD_CFLAGS"
 
 
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for openat2" >&5
+printf %s "checking for openat2... " >&6; }
+if test ${rsync_cv_HAVE_OPENAT2+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e)
+    cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+
+#include <sys/syscall.h>
+#include <linux/openat2.h>
+
+int
+main (void)
+{
+
+struct open_how how;
+how.resolve = RESOLVE_BENEATH;
+return SYS_openat2 + (int)how.resolve;
+
+  ;
+  return 0;
+}
+
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  rsync_cv_HAVE_OPENAT2=yes
+else case e in #(
+  e) rsync_cv_HAVE_OPENAT2=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext
+ ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rsync_cv_HAVE_OPENAT2" >&5
+printf "%s\n" "$rsync_cv_HAVE_OPENAT2" >&6; }
+if test x"$rsync_cv_HAVE_OPENAT2" = x"yes"; then
+
+printf "%s\n" "#define HAVE_OPENAT2 1" >>confdefs.h
+
+fi
+
 # arrgh. libc in some old debian version screwed up the largefile
 # stuff, getting byte range locking wrong
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for broken largefile support" >&5
@@ -10942,6 +10988,18 @@ ac_fn_c_check_func "$LINENO" "linkat" "ac_cv_func_linkat"
 if test "x$ac_cv_func_linkat" = xyes
 then :
   printf "%s\n" "#define HAVE_LINKAT 1" >>confdefs.h
+
+fi
+ac_fn_c_check_func "$LINENO" "mknodat" "ac_cv_func_mknodat"
+if test "x$ac_cv_func_mknodat" = xyes
+then :
+  printf "%s\n" "#define HAVE_MKNODAT 1" >>confdefs.h
+
+fi
+ac_fn_c_check_func "$LINENO" "mkfifoat" "ac_cv_func_mkfifoat"
+if test "x$ac_cv_func_mkfifoat" = xyes
+then :
+  printf "%s\n" "#define HAVE_MKFIFOAT 1" >>confdefs.h
 
 fi
 ac_fn_c_check_func "$LINENO" "memmove" "ac_cv_func_memmove"
