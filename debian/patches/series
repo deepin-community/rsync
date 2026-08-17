@@ -4,3 +4,4 @@ env_shebang.patch
 fix_rrsync_man_generation.patch
 CVE-2026-53791.patch
 CVE-2026-70453.patch
+CVE-2026-70461.patch
