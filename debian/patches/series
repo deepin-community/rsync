@@ -2,3 +2,4 @@ disable_reconfigure_req.diff
 skip_devices_test_non_linux.patch
 env_shebang.patch
 fix_rrsync_man_generation.patch
+CVE-2026-70460.patch
