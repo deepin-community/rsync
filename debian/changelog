@@ -1,3 +1,9 @@
+rsync (3.4.4+ds1-1deepin11) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-53794
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 01:44:48 +0800
+
 rsync (3.4.4+ds1-1deepin10) unstable; urgency=medium
 
   * fix(cve): CVE-2026-53796
