@@ -6,6 +6,10 @@ rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
     https://github.com/RsyncProject/rsync/commit/e7c017914fa68c62f0f5e60
     fe52dda7bae8c3109,https://github.com/RsyncProject/rsync/commit/e6044
     af38f130f5094ed66bf44ddcf75728bc6ce
+  * fix(cve): CVE-2026-70464 (high) - daemon: bound the pre-transfer
+    handshake with a timeout   Upstream:
+    https://github.com/RsyncProject/rsync/commit/861bfa08128ae4cc27a3914
+    c6c27e01539cedafb
 
  -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 04:01:09 +0800
 
