@@ -1,6 +1,11 @@
 rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
 
   * fix(cve): CVE-2026-53788
+  * fix(cve): CVE-2026-70462 (high) - io: reject a non-positive
+    MSG_IO_TIMEOUT from the peer   Upstream:
+    https://github.com/RsyncProject/rsync/commit/e7c017914fa68c62f0f5e60
+    fe52dda7bae8c3109,https://github.com/RsyncProject/rsync/commit/e6044
+    af38f130f5094ed66bf44ddcf75728bc6ce
 
  -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 04:01:09 +0800
 
