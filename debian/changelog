@@ -1,6 +1,10 @@
 rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
 
   * fix(cve): CVE-2026-53788
+  * fix(cve): CVE-2026-53793 (critical) - Fix path traversal via /./ in
+    module root directory   Upstream:
+    https://github.com/RsyncProject/rsync/commit/150365cba9d6bb26ac149de
+    a3ea0205b88764e6d
 
  -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 04:01:09 +0800
 
