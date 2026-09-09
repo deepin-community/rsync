@@ -10,6 +10,10 @@ rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
     handshake with a timeout   Upstream:
     https://github.com/RsyncProject/rsync/commit/861bfa08128ae4cc27a3914
     c6c27e01539cedafb
+  * fix(cve): CVE-2026-70455 (high) - options: refuse aliases for exact
+    option rules   Upstream:
+    https://github.com/RsyncProject/rsync/commit/ff4d495be7404abadaa0f6c
+    23ae7b6b0c3977980
 
  -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 04:01:09 +0800
 
