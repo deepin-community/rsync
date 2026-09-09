@@ -1,6 +1,10 @@
 rsync (3.4.4+ds1-1) unstable; urgency=medium
 
   * New upstream version 3.4.4+ds1
+  * fix(cve): CVE-2026-53801 (high) - [PATCH] flist/clientserver:
+    confine the directory-scan enumeration   Upstream:
+    https://github.com/RsyncProject/rsync/commit/5aa125d472ce56354220ebe
+    815a6d73ed9562260
 
  -- Samuel Henrique <samueloph@debian.org>  Sun, 07 Jun 2026 22:07:25 -0700
 
