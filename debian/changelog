@@ -1,3 +1,100 @@
+rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-53788
+  * fix(cve): CVE-2026-70462 (high) - io: reject a non-positive
+    MSG_IO_TIMEOUT from the peer   Upstream:
+    https://github.com/RsyncProject/rsync/commit/e7c017914fa68c62f0f5e60
+    fe52dda7bae8c3109,https://github.com/RsyncProject/rsync/commit/e6044
+    af38f130f5094ed66bf44ddcf75728bc6ce
+  * fix(cve): CVE-2026-70464 (high) - daemon: bound the pre-transfer
+    handshake with a timeout   Upstream:
+    https://github.com/RsyncProject/rsync/commit/861bfa08128ae4cc27a3914
+    c6c27e01539cedafb
+  * fix(cve): CVE-2026-70455 (high) - options: refuse aliases for exact
+    option rules   Upstream:
+    https://github.com/RsyncProject/rsync/commit/ff4d495be7404abadaa0f6c
+    23ae7b6b0c3977980
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 04:01:09 +0800
+
+rsync (3.4.4+ds1-1deepin13) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-53785
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 03:41:53 +0800
+
+rsync (3.4.4+ds1-1deepin12) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-53797
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 02:21:07 +0800
+
+rsync (3.4.4+ds1-1deepin11) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-53794
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 01:44:48 +0800
+
+rsync (3.4.4+ds1-1deepin10) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-53796
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 01:04:12 +0800
+
+rsync (3.4.4+ds1-1deepin9) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-70456
+
+ -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 20:32:16 +0800
+
+rsync (3.4.4+ds1-1deepin8) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-70454
+
+ -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 20:16:01 +0800
+
+rsync (3.4.4+ds1-1deepin7) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-70463
+
+ -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 18:52:40 +0800
+
+rsync (3.4.4+ds1-1deepin6) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-70463
+
+ -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 18:52:29 +0800
+
+rsync (3.4.4+ds1-1deepin5) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-70463
+
+ -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 18:52:16 +0800
+
+rsync (3.4.4+ds1-1deepin4) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-53784
+
+ -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 17:23:02 +0800
+
+rsync (3.4.4+ds1-1deepin3) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-70461
+
+ -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 01:39:56 +0800
+
+rsync (3.4.4+ds1-1deepin2) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-70453
+
+ -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 01:28:36 +0800
+
+rsync (3.4.4+ds1-1deepin1) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-53791
+
+ -- deepin-ci-robot <packages@deepin.org>  Mon, 17 Aug 2026 23:43:14 +0800
+
 rsync (3.4.4+ds1-1) unstable; urgency=medium
 
   * New upstream version 3.4.4+ds1
