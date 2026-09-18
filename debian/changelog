@@ -22,6 +22,10 @@ rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
     against a TOCTOU and fail closed on anomalies   Upstream:
     https://github.com/RsyncProject/rsync/commit/88cee089637ac30f3af7b47
     97e978fffc2cc45f5
+  * fix(cve): CVE-2026-53803 (high) - rsync: add --confine-root,
+    bounding operator path resolution   Upstream:
+    https://github.com/RsyncProject/rsync/commit/31130112185cd3f23e13a91
+    5d14ff0088c581a24
 
  -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 04:01:09 +0800
 
