@@ -14,6 +14,10 @@ rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
     option rules   Upstream:
     https://github.com/RsyncProject/rsync/commit/ff4d495be7404abadaa0f6c
     23ae7b6b0c3977980
+  * fix(cve): CVE-2026-70452 (critical) - access: fail closed when a
+    hosts-deny token can't be resolved   Upstream:
+    https://github.com/RsyncProject/rsync/commit/054d0eb475e20b9c6bb3199
+    37ba3fea4b04a30dd.patch
 
  -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 04:01:09 +0800
 
