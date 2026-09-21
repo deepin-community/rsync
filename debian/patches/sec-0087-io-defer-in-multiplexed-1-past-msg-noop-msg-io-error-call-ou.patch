@@ -1,0 +1,36 @@
+From 5f188b125297850d6f11d86033f35de309467764 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 087/200] e3986e76
+
+---
+ io.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/io.c b/io.c
+index 61b5458d..6f8de9ad 100644
+--- a/io.c
++++ b/io.c
+@@ -1550,10 +1550,10 @@ static void read_a_msg(void)
+ 		if (msg_bytes != 4)
+ 			goto invalid_msg;
+ 		val = raw_read_int();
+-		iobuf.in_multiplexed = 1;
+ 		io_error |= val;
+ 		if (am_receiver)
+ 			send_msg_int(MSG_IO_ERROR, val);
++		iobuf.in_multiplexed = 1;
+ 		break;
+ 	case MSG_IO_TIMEOUT:
+ 		if (msg_bytes != 4 || am_server || am_generator)
+@@ -1570,9 +1570,9 @@ static void read_a_msg(void)
+ 		/* Support protocol-30 keep-alive method. */
+ 		if (msg_bytes != 0)
+ 			goto invalid_msg;
+-		iobuf.in_multiplexed = 1;
+ 		if (am_sender)
+ 			maybe_send_keepalive(time(NULL), MSK_ALLOW_FLUSH);
++		iobuf.in_multiplexed = 1;
+ 		break;
+ 	case MSG_DELETED:
+ 		if (msg_bytes >= sizeof data)

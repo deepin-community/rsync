@@ -1,0 +1,21 @@
+From dbba861714ab8803e0ec396d1f2db63a3510af5a Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 079/200] 2db47120
+
+---
+ flist.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/flist.c b/flist.c
+index a72acf80..75552911 100644
+--- a/flist.c
++++ b/flist.c
+@@ -1119,6 +1119,7 @@ static struct file_struct *recv_file_entry(int f, struct file_list *flist, int x
+ 
+ #ifdef SUPPORT_HARD_LINKS
+ 	if (preserve_hard_links && xflags & XMIT_HLINKED
++	 && !S_ISDIR(mode)
+ #ifndef CAN_HARDLINK_SYMLINK
+ 	 && !S_ISLNK(mode)
+ #endif

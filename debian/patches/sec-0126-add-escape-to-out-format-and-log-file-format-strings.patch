@@ -1,0 +1,23 @@
+From 03ddfd1b26cfbfbb8e63a9b9ac914ee9a9857c10 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 126/200] 0ac17f56
+
+---
+ log.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/log.c b/log.c
+index 4dea929a..6e714432 100644
+--- a/log.c
++++ b/log.c
+@@ -767,6 +767,9 @@ static void log_formatted(enum logcode code, const char *format, const char *op,
+ 				}
+ 			}
+ 			break;
++		case '%':
++			n = "%";
++			break;
+ 		}
+ 
+ 		/* "n" is the string to be inserted in place of this % code. */

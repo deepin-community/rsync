@@ -1,0 +1,31 @@
+From 6cbaf32ae70df62814a1e54098c90f27e6d7011e Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 125/200] 6c4ce713
+
+---
+ util1.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/util1.c b/util1.c
+index 094825c3..9197e93e 100644
+--- a/util1.c
++++ b/util1.c
+@@ -1057,9 +1057,14 @@ int clean_fname(char *name, int flags)
+ 				while (s > limit && s[-1] != '/')
+ 					s--;
+ 
+-				/* If found prior '/', or we reached the start, adjust t. */
+-				if (s != t - 1 && (s <= name || *s == '/')) {
+-					t = (s == name) ? name : s + 1;
++				/* If found prior '/', or we reached the start, adjust t.
++				 * After the backward walk, s points at the first char of the
++				 * prior component and s[-1] is its leading '/' -- so test
++				 * s[-1] (not *s) and reset t to s (not s+1) to actually drop
++				 * the component; the old off-by-one left CFN_COLLAPSE_DOT_DOT_DIRS
++				 * dead for multi-component and absolute paths. */
++				if (s != t - 1 && (s <= name || s[-1] == '/')) {
++					t = (s == name) ? name : s;
+ 					f += 2;
+ 					continue;
+ 				}

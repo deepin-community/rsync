@@ -1,0 +1,110 @@
+From 64eb2f86ae35d33dd84afac8005dbada4315d346 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:13 +0800
+Subject: [PATCH 166/200] fc89bf6d
+
+---
+ generator.c | 11 +++++++++--
+ options.c   |  3 +++
+ rsync.1.md  | 31 +++++++++++++++++++++++++++++++
+ 3 files changed, 43 insertions(+), 2 deletions(-)
+
+diff --git a/generator.c b/generator.c
+index 684fa05b..53cfa217 100644
+--- a/generator.c
++++ b/generator.c
+@@ -42,6 +42,7 @@ extern int preserve_xattrs;
+ extern int preserve_links;
+ extern int preserve_devices;
+ extern int preserve_specials;
++extern int drop_devices;
+ extern int preserve_hard_links;
+ extern int preserve_executability;
+ extern int preserve_perms;
+@@ -1898,8 +1899,14 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ 		goto cleanup;
+ 	}
+ 
+-	if ((am_root && preserve_devices && ftype == FT_DEVICE)
+-	 || (preserve_specials && ftype == FT_SPECIAL)) {
++	/* --drop-D refuses to CREATE devices/specials without touching
++	 * preserve_devices/preserve_specials, which also frame the file list's
++	 * rdev fields -- clearing those on one end of a connection alone
++	 * desynchronises it.  Falls through to the "skipping non-regular file"
++	 * path below, exactly as --no-D reaches it. */
++	if (!drop_devices
++	 && ((am_root && preserve_devices && ftype == FT_DEVICE)
++	  || (preserve_specials && ftype == FT_SPECIAL))) {
+ 		dev_t rdev;
+ 		int del_for_flag;
+ 		/* Whether the dest existed, captured before the type-mismatch
+diff --git a/options.c b/options.c
+index 21671c75..57a0d991 100644
+--- a/options.c
++++ b/options.c
+@@ -60,6 +60,7 @@ int preserve_perms = 0;
+ int preserve_executability = 0;
+ int preserve_devices = 0;
+ int preserve_specials = 0;
++int drop_devices = 0;
+ int preserve_uid = 0;
+ int preserve_gid = 0;
+ int preserve_mtimes = 0;
+@@ -681,6 +682,8 @@ static struct poptOption long_options[] = {
+   {"no-write-devices", 0,  POPT_ARG_VAL,    &write_devices, 0, 0, 0 },
+   {"specials",         0,  POPT_ARG_VAL,    &preserve_specials, 1, 0, 0 },
+   {"no-specials",      0,  POPT_ARG_VAL,    &preserve_specials, 0, 0, 0 },
++  {"drop-D",           0,  POPT_ARG_VAL,    &drop_devices, 1, 0, 0 },
++  {"no-drop-D",        0,  POPT_ARG_VAL,    &drop_devices, 0, 0, 0 },
+   {"links",           'l', POPT_ARG_VAL,    &preserve_links, 1, 0, 0 },
+   {"no-links",         0,  POPT_ARG_VAL,    &preserve_links, 0, 0, 0 },
+   {"no-l",             0,  POPT_ARG_VAL,    &preserve_links, 0, 0, 0 },
+diff --git a/rsync.1.md b/rsync.1.md
+index 8d924dff..a390b48e 100644
+--- a/rsync.1.md
++++ b/rsync.1.md
+@@ -506,6 +506,7 @@ has its own detailed description later in this manpage.
+ --copy-devices           copy device contents as a regular file
+ --write-devices          write to devices as files (implies --inplace)
+ --specials               preserve special files
++--drop-D                 receiver refuses to create devices/specials
+ -D                       same as --devices --specials
+ --times, -t              preserve modification times
+ --atimes, -U             preserve access (use) times
+@@ -1651,6 +1652,36 @@ expand it.
+     The `-D` option is equivalent to "[`--devices`](#opt)
+     [`--specials`](#opt)".
+ 
++0.  `--drop-D`
++
++    This tells the receiving rsync to refuse to create device files and
++    special files, whatever the transfer requested.  Entries for them are
++    skipped exactly as if [`-D`](#opt) had not been used, with the usual
++    "non-regular file" warning.
++
++    This differs from `--no-D` in that it changes only what is created, not
++    how the file list is encoded.  `--no-D` also turns off the rdev fields
++    that devices and special files carry on the wire, so applying it to one
++    end of a connection alone leaves the two ends disagreeing about the
++    encoding and the transfer fails.  `--drop-D` can therefore be added on the
++    receiving side by itself, which is what it exists for -- the `rrsync`
++    wrapper uses it to stop a restricted directory's clients creating device
++    and special files in it.  Nodes already present there are left alone.
++
++    Because it only withholds creation, it has no effect on a sending rsync.
++
++    This option is not forwarded to the remote side, since its whole purpose
++    is to be applied to one end of a connection by itself.  It therefore
++    affects the rsync process you give it to and no other: on a local copy, or
++    on the receiving end of a `--server` invocation such as the one rrsync
++    builds.  To set it on a remote receiver from the command line, send it
++    explicitly with [`--remote-option`](#opt) (`-M`):
++
++    >     rsync -av -M--drop-D src/ host:dest/
++
++    Passing a plain `--drop-D` to a push affects only the local sender, where
++    it does nothing.
++
+ 0.  `--copy-devices`
+ 
+     This tells rsync to treat a device on the sending side as a regular file,

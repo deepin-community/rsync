@@ -1,0 +1,52 @@
+From aed8065f65d2692fd0655a61270c61bab8411783 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:10 +0800
+Subject: [PATCH 098/200] 69eef72e
+
+---
+ hlink.c |  9 ++++++++-
+ main.c  | 11 +++++++++++
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/hlink.c b/hlink.c
+index b3d1974d..dc95c42e 100644
+--- a/hlink.c
++++ b/hlink.c
+@@ -420,7 +420,14 @@ int hard_link_check(struct file_struct *file, int ndx, char *fname,
+ 				}
+ 				break;
+ 			}
+-			if (!quick_check_ok(FT_REG, cmpbuf, file, &alt_sx.st))
++			/* Content-based basis match only applies to regular
++			 * files: for a hard-linked symlink/device/special the
++			 * exact-inode check above is the only meaningful test,
++			 * and quick_check_ok(FT_REG, ...) would read F_SUM()
++			 * on a file_struct that has no SUM_EXTRA_CNT space
++			 * (recv_file_entry only allocates it for S_ISREG). */
++			if (!S_ISREG(file->mode)
++			 || !quick_check_ok(FT_REG, cmpbuf, file, &alt_sx.st))
+ 				continue;
+ 			statret = 1;
+ 			if (unchanged_attrs(cmpbuf, file, &alt_sx))
+diff --git a/main.c b/main.c
+index 18e00be9..4255d767 100644
+--- a/main.c
++++ b/main.c
+@@ -1292,6 +1292,17 @@ void start_server(int f_in, int f_out, int argc, char *argv[])
+ 
+ 	if (am_sender) {
+ 		keep_dirlinks = 0; /* Must be disabled on the sender. */
++
++		/* Mirror client_run()'s sender_keeps_checksum check: a daemon-
++		 * as-sender with -c and a `log format` containing %C will read
++		 * F_SUM(file) in log_formatted(), so make_file() must allocate
++		 * SUM_EXTRA_CNT.  Without this, F_SUM() reads past the pool slot
++		 * and hex-encodes adjacent heap into the transfer log. */
++		if (always_checksum
++		 && (log_format_has(stdout_format, 'C')
++		  || log_format_has(logfile_format, 'C')))
++			sender_keeps_checksum = 1;
++
+ 		if (need_messages_from_generator)
+ 			io_start_multiplex_in(f_in);
+ 		else

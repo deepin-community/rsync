@@ -1,0 +1,38 @@
+From f277568bfe010c8310811ae2f111fc05163a7b5e Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:06 +0800
+Subject: [PATCH 005/200] dff93c92
+
+---
+ util1.c | 2 ++
+ util2.c | 4 +---
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/util1.c b/util1.c
+index 29a4b240..3ff1edee 100644
+--- a/util1.c
++++ b/util1.c
+@@ -1783,6 +1783,8 @@ void *expand_item_list(item_list *lp, size_t item_size, const char *desc, int in
+ 				new_ptr == lp->items ? " not" : "");
+ 		}
+ 
++		memset((char *)new_ptr + lp->malloced * item_size, 0,
++		       (expand_size - lp->malloced) * item_size);
+ 		lp->items = new_ptr;
+ 		lp->malloced = expand_size;
+ 	}
+diff --git a/util2.c b/util2.c
+index b59bff0a..ce6f7de1 100644
+--- a/util2.c
++++ b/util2.c
+@@ -79,9 +79,7 @@ void *my_alloc(void *ptr, size_t num, size_t size, const char *file, int line)
+ 			who_am_i(), do_big_num(max_alloc, 0, NULL), src_file(file), line);
+ 		exit_cleanup(RERR_MALLOC);
+ 	}
+-	if (!ptr)
+-		ptr = malloc(num * size);
+-	else if (ptr == do_calloc)
++	if (!ptr || ptr == do_calloc)
+ 		ptr = calloc(num, size);
+ 	else
+ 		ptr = realloc(ptr, num * size);

@@ -1,0 +1,29 @@
+From 7669d5473ef538ede56855753aecc06f75839416 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:12 +0800
+Subject: [PATCH 132/200] c998481d
+
+---
+ util1.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/util1.c b/util1.c
+index ef83a786..5b02d713 100644
+--- a/util1.c
++++ b/util1.c
+@@ -632,13 +632,13 @@ int robust_rename(const char *from, const char *to, const char *partialptr,
+ 			 * the module.  copy_file already confines the source READ; a
+ 			 * relative in-module path stays on the secure_relative_open arm, so
+ 			 * only flip the flag for an absolute (operator) path. */
+-			if (to && *to == '/')
++			if (*to == '/')
+ 				operator_path_resolve = 1;
+ 			rc = copy_file(from, to, -1, mode);
+ 			operator_path_resolve = save;
+ 			if (rc != 0)
+ 				return -2;
+-			if (from && *from == '/')
++			if (*from == '/')
+ 				operator_path_resolve = 1;
+ 			do_unlink_at(from);
+ 			operator_path_resolve = save;

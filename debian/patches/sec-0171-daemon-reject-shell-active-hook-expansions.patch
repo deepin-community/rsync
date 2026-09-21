@@ -1,0 +1,30 @@
+From 2ea5e20b52d6ab4bce6547280197e317f9db1942 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:13 +0800
+Subject: [PATCH 171/200] 0fd69bfd
+
+---
+ loadparm.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/loadparm.c b/loadparm.c
+index 78d6f2e6..cc619a9e 100644
+--- a/loadparm.c
++++ b/loadparm.c
+@@ -175,14 +175,13 @@ enum shell_quote_context {
+  * context-aware escaping is correct for exactly one level of shell parsing,
+  * and a hook such as `sh -c '... %RSYNC_USER_NAME% ...'` re-parses the word in
+  * a second shell that sees the value bare.  Peer-supplied values carrying any
+- * of these are refused instead.  Word-splitting and glob characters are left
+- * alone: they cannot execute anything, and paths legitimately contain them. */
++ * of these are refused instead. */
+ static int shell_unsafe_value(const char *val)
+ {
+ 	const char *s;
+ 
+ 	for (s = val; *s; s++) {
+-		if (strchr("'\"`$\\;&|<>()", *s)
++		if (strchr("'\"`$\\;&|<>()*?[]# ", *s)
+ 		 || (unsigned char)*s < 0x20 || (unsigned char)*s == 0x7f)
+ 			return 1;
+ 	}

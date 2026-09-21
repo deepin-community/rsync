@@ -1,0 +1,121 @@
+From 0be73e02f94fc640083b48b788deb4fec2f7a5fa Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:06 +0800
+Subject: [PATCH 014/200] 0cac014f
+
+---
+ testsuite/alt-dest-symlink-race.test     | 17 +++++++++++++++++
+ testsuite/bare-do-open-symlink-race.test | 20 ++++++++++++++++++++
+ testsuite/copy-dest-source-symlink.test  | 15 +++++++++++++++
+ 3 files changed, 52 insertions(+)
+
+diff --git a/testsuite/alt-dest-symlink-race.test b/testsuite/alt-dest-symlink-race.test
+index 2256f2f2..fd36c6e6 100755
+--- a/testsuite/alt-dest-symlink-race.test
++++ b/testsuite/alt-dest-symlink-race.test
+@@ -62,8 +62,25 @@ echo "OUTSIDE_SECRET_DATA" > "$src/target.txt"
+ touch -r "$outside/target.txt" "$src/target.txt"
+ chmod 0644 "$src/target.txt"
+ 
++# When running as root the daemon would drop to "nobody" by
++# default, which can't write into the test scratch dir. Force the
++# daemon to keep our uid/gid in that case so the basis-link
++# transfer can actually create the destination file. (Non-root
++# can't specify uid/gid in rsyncd.conf -- comment them out then.)
++my_uid=`get_testuid`
++root_uid=`get_rootuid`
++root_gid=`get_rootgid`
++uid_setting="uid = $root_uid"
++gid_setting="gid = $root_gid"
++if test x"$my_uid" != x"$root_uid"; then
++    uid_setting="#$uid_setting"
++    gid_setting="#$gid_setting"
++fi
++
+ cat > "$conf" <<EOF
+ use chroot = no
++$uid_setting
++$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload]
+     path = $mod
+diff --git a/testsuite/bare-do-open-symlink-race.test b/testsuite/bare-do-open-symlink-race.test
+index b8c51bbe..e2952239 100755
+--- a/testsuite/bare-do-open-symlink-race.test
++++ b/testsuite/bare-do-open-symlink-race.test
+@@ -82,6 +82,20 @@ verify_outside_unchanged_or_absent() {
+     fi
+ }
+ 
++# When running as root the daemon would drop to "nobody" by default
++# and fail to write into the test scratch dir. Force it to keep our
++# uid/gid in that case so the receiver actually runs the code paths
++# we want to test.
++my_uid=`get_testuid`
++root_uid=`get_rootuid`
++root_gid=`get_rootgid`
++uid_setting="uid = $root_uid"
++gid_setting="gid = $root_gid"
++if test x"$my_uid" != x"$root_uid"; then
++    uid_setting="#$uid_setting"
++    gid_setting="#$gid_setting"
++fi
++
+ 
+ ############################################################
+ # Scenario 3b: --inplace --backup --backup-dir=cd
+@@ -103,6 +117,8 @@ chmod 0644 "$src/target.txt"
+ 
+ cat > "$conf" <<EOF
+ use chroot = no
++$uid_setting
++$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload]
+     path = $mod
+@@ -137,6 +153,8 @@ ln -s /etc/passwd "$src/cd/sym"
+ 
+ cat > "$conf" <<EOF
+ use chroot = no
++$uid_setting
++$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload_fake]
+     path = $mod
+@@ -170,6 +188,8 @@ fi
+ 
+ cat > "$conf" <<EOF
+ use chroot = no
++$uid_setting
++$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload_fake]
+     path = $mod
+diff --git a/testsuite/copy-dest-source-symlink.test b/testsuite/copy-dest-source-symlink.test
+index 2d20fab4..f91ee986 100755
+--- a/testsuite/copy-dest-source-symlink.test
++++ b/testsuite/copy-dest-source-symlink.test
+@@ -54,8 +54,23 @@ echo "ATTACKER_KNOWN_DATA!" > "$src/target.txt"
+ touch -r "$outside/target.txt" "$src/target.txt"
+ chmod 0644 "$src/target.txt"
+ 
++# When running as root the daemon would drop to "nobody" by
++# default and fail to mkstemp in the scratch dir; force it to
++# keep our uid/gid in that case.
++my_uid=`get_testuid`
++root_uid=`get_rootuid`
++root_gid=`get_rootgid`
++uid_setting="uid = $root_uid"
++gid_setting="gid = $root_gid"
++if test x"$my_uid" != x"$root_uid"; then
++    uid_setting="#$uid_setting"
++    gid_setting="#$gid_setting"
++fi
++
+ cat > "$conf" <<EOF
+ use chroot = no
++$uid_setting
++$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload]
+     path = $mod

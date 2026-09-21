@@ -1,0 +1,145 @@
+From 1142235eadf78dd23eb2e90f9c80f938dc6c11f1 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 105/200] cf0c3619
+
+---
+ clientserver.c | 13 ++++++++++++-
+ flist.c        |  4 ++++
+ generator.c    |  3 ++-
+ uidlist.c      |  8 +++++---
+ xattrs.c       |  1 +
+ 5 files changed, 24 insertions(+), 5 deletions(-)
+
+diff --git a/clientserver.c b/clientserver.c
+index a1f842cc..eb3d3275 100644
+--- a/clientserver.c
++++ b/clientserver.c
+@@ -273,8 +273,10 @@ int start_inband_exchange(int f_in, int f_out, const char *user, int argc, char
+ 	if (!user)
+ 		user = getenv("LOGNAME");
+ 
+-	if (exchange_protocols(f_in, f_out, line, sizeof line, 1) < 0)
++	if (exchange_protocols(f_in, f_out, line, sizeof line, 1) < 0) {
++		free(modname);
+ 		return -1;
++	}
+ 
+ 	if (early_input_file) {
+ 		STRUCT_STAT st;
+@@ -285,11 +287,16 @@ int start_inband_exchange(int f_in, int f_out, const char *user, int argc, char
+ 		if (!f && ei_fd >= 0) close(ei_fd);
+ 		if (!f || do_fstat(fileno(f), &st) < 0) {
+ 			rsyserr(FERROR, errno, "failed to open %s", early_input_file);
++			if (f)
++				fclose(f);
++			free(modname);
+ 			return -1;
+ 		}
+ 		early_input_len = st.st_size;
+ 		if (early_input_len > (int)sizeof line) {
+ 			rprintf(FERROR, "%s is > %d bytes.\n", early_input_file, (int)sizeof line);
++			fclose(f);
++			free(modname);
+ 			return -1;
+ 		}
+ 		if (early_input_len > 0) {
+@@ -298,6 +305,8 @@ int start_inband_exchange(int f_in, int f_out, const char *user, int argc, char
+ 				int len;
+ 				if (feof(f)) {
+ 					rprintf(FERROR, "Early EOF in %s\n", early_input_file);
++					fclose(f);
++					free(modname);
+ 					return -1;
+ 				}
+ 				len = fread(line, 1, early_input_len, f);
+@@ -374,6 +383,7 @@ int start_inband_exchange(int f_in, int f_out, const char *user, int argc, char
+ 	while (1) {
+ 		if (!read_line_old(f_in, line, sizeof line, 0)) {
+ 			rprintf(FERROR, "rsync: didn't get server startup line\n");
++			free(modname);
+ 			return -1;
+ 		}
+ 
+@@ -397,6 +407,7 @@ int start_inband_exchange(int f_in, int f_out, const char *user, int argc, char
+ 			rprintf(FERROR, "%s\n", line);
+ 			/* This is always fatal; the server will now
+ 			 * close the socket. */
++			free(modname);
+ 			return -1;
+ 		}
+ 
+diff --git a/flist.c b/flist.c
+index 59f3fe1c..b3ffc6c2 100644
+--- a/flist.c
++++ b/flist.c
+@@ -1794,6 +1794,7 @@ static struct file_struct *send_file_name(int f, struct file_list *flist,
+ 			sx.st.st_mode = file->mode;
+ 			if (get_acl(fname, &sx) < 0) {
+ 				io_error |= IOERR_GENERAL;
++				free_acl(&sx);
+ 				return NULL;
+ 			}
+ 		}
+@@ -1803,6 +1804,9 @@ static struct file_struct *send_file_name(int f, struct file_list *flist,
+ 			sx.st.st_mode = file->mode;
+ 			if (get_xattr(fname, &sx) < 0) {
+ 				io_error |= IOERR_GENERAL;
++#ifdef SUPPORT_ACLS
++				free_acl(&sx); /* get_acl() above may have loaded one */
++#endif
+ 				return NULL;
+ 			}
+ 		}
+diff --git a/generator.c b/generator.c
+index baa3fd34..f8feee9f 100644
+--- a/generator.c
++++ b/generator.c
+@@ -1385,7 +1385,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ 	static int need_fuzzy_dirlist = 0;
+ 	struct file_struct *fuzzy_file = NULL;
+ 	int fd = -1, f_copy = -1;
+-	stat_x sx = {0}, real_sx;
++	stat_x sx = {0}, real_sx = {0};
+ 	STRUCT_STAT partial_st;
+ 	struct file_struct *back_file = NULL;
+ 	int statret, real_ret, stat_errno;
+@@ -2186,6 +2186,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ 	}
+ 
+ 	free_stat_x(&sx);
++	free_stat_x(&real_sx);
+ }
+ 
+ /* If we are replacing an existing hard link, symlink, device, or special file,
+diff --git a/uidlist.c b/uidlist.c
+index 99a34679..5c1096ad 100644
+--- a/uidlist.c
++++ b/uidlist.c
+@@ -397,9 +397,11 @@ static void send_one_list(int f, struct idlist *idlist, int usernames)
+ 
+ 	/* Terminate the uid list with 0 (which was excluded above).
+ 	 * A modern rsync also sends the name of id 0. */
+-	if (xmit_id0_names)
+-		send_one_name(f, 0, usernames ? uid_to_user(0) : gid_to_group(0));
+-	else
++	if (xmit_id0_names) {
++		const char *name = usernames ? uid_to_user(0) : gid_to_group(0);
++		send_one_name(f, 0, name);
++		free((char *)name);
++	} else
+ 		write_varint30(f, 0);
+ }
+ 
+diff --git a/xattrs.c b/xattrs.c
+index 66e9ca51..c205189e 100644
+--- a/xattrs.c
++++ b/xattrs.c
+@@ -381,6 +381,7 @@ int copy_xattrs(const char *source, const char *dest, int dest_fd)
+ 				"copy_xattrs: %ssetxattr(%s,\"%s\") failed",
+ 				dest_fd >= 0 ? "f" : "l", full_fname(dest), name);
+ 			errno = save_errno;
++			free(ptr);
+ 			return -1;
+ 		}
+ 		free(ptr);

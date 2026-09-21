@@ -1,0 +1,44 @@
+From 1f1259c34ba59734b0b488ba7ddb64e6c16fac44 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:14 +0800
+Subject: [PATCH 189/200] 6cf2efd8
+
+---
+ exclude.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/exclude.c b/exclude.c
+index 7ca49e91..4f3c8ee9 100644
+--- a/exclude.c
++++ b/exclude.c
+@@ -1560,6 +1560,11 @@ void parse_filter_str(filter_rule_list *listp, const char *rulestr,
+ 				filter_rule *excl_self;
+ 
+ 				excl_self = new0(filter_rule);
++				/* The pattern below is the merge rule's own text, so it
++				 * inherits that rule's provenance.  Built by hand, this
++				 * rule looked argument-origin once parsing finished and
++				 * the match trace echoed a merge file's contents at -vv. */
++				excl_self->rflags = rule->rflags & FILTRULE_FROM_FILE;
+ 				/* Find the beginning of the basename and add an exclude for it. */
+ 				for (name = pat + pat_len; name > pat && name[-1] != '/'; name--) {}
+ 				add_rule(listp, name, (pat + pat_len) - name, excl_self, 0);
+@@ -1716,6 +1721,10 @@ void parse_filter_file(filter_rule_list *listp, const char *fname, const filter_
+ 		merge_depth--;
+ 		return;
+ 	}
++	/* Before dirbuf is cut back: a per-directory fname points INTO dirbuf,
++	 * so truncating first leaves only the directory and the location we
++	 * report loses the filename. */
++	strlcpy(src_name, fname, sizeof src_name);
+ 	dirbuf[dirbuf_len] = '\0';
+ 
+ 	/* Rule text from here on is this file's contents, not an argument, so
+@@ -1740,7 +1749,6 @@ void parse_filter_file(filter_rule_list *listp, const char *fname, const filter_
+ 		} else
+ 			rule_src_named_at = NULL;
+ 	}
+-	strlcpy(src_name, fname, sizeof src_name);
+ 	rule_src_in_file = 1;
+ 	rule_src_file = named_by_file ? NULL : src_name;
+ 	rule_src_line = word_split ? -1 : 0;   /* -1: tokens, not lines */

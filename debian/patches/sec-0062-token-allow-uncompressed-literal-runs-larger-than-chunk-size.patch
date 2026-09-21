@@ -1,0 +1,32 @@
+From 95a1bc7595ff81cc9ded08b53e6224f4387a3a9b Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 062/200] 8bfa8888
+
+---
+ token.c | 12 ++++--------
+ 1 file changed, 4 insertions(+), 8 deletions(-)
+
+diff --git a/token.c b/token.c
+index f910f74b..b527c7d7 100644
+--- a/token.c
++++ b/token.c
+@@ -292,14 +292,10 @@ static int32 simple_recv_token(int f, char **data)
+ 		int32 i = read_int(f);
+ 		if (i <= 0)
+ 			return i;
+-		/* simple_send_token caps each literal chunk at CHUNK_SIZE;
+-		 * reject anything larger so a hostile peer cannot drive the
+-		 * read_buf below past our static CHUNK_SIZE buffer. */
+-		if (i > CHUNK_SIZE) {
+-			rprintf(FERROR, "invalid uncompressed token length %ld [%s]\n",
+-				(long)i, who_am_i());
+-			exit_cleanup(RERR_PROTOCOL);
+-		}
++		/* A literal run may exceed CHUNK_SIZE: some peers (e.g. the
++		 * acrosync library) use a 64k block size.  The loop below reads
++		 * the run CHUNK_SIZE bytes at a time, so read_buf never writes
++		 * past the static CHUNK_SIZE buffer regardless of i. */
+ 		residue = i;
+ 	}
+ 

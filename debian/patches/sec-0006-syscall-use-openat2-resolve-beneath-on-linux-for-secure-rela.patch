@@ -1,0 +1,200 @@
+From 0e21bf2bfb2a6692d7773f41dcc5fde75128d6bd Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:06 +0800
+Subject: [PATCH 006/200] 45ce54b5
+
+---
+ syscall.c                            | 118 ++++-----------------------
+ testsuite/symlink-dirlink-basis.test |  12 ---
+ 2 files changed, 16 insertions(+), 114 deletions(-)
+
+diff --git a/syscall.c b/syscall.c
+index 1c3d1c9a..adc0b8fb 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -33,7 +33,7 @@
+ #include <sys/syscall.h>
+ #endif
+ 
+-#if defined(__linux__) && defined(HAVE_OPENAT2)
++#ifdef __linux__
+ #include <sys/syscall.h>
+ #include <linux/openat2.h>
+ #endif
+@@ -1658,55 +1658,14 @@ int do_open_nofollow(const char *pathname, int flags)
+   versions rejected every symlink with O_NOFOLLOW on each component,
+   which broke legitimate directory symlinks on the receiver side
+   (https://github.com/RsyncProject/rsync/issues/715). The escape
+-  prevention is handled by:
+-    Linux 5.6+:                openat2(RESOLVE_BENEATH)
+-    FreeBSD 13+:               openat() with O_RESOLVE_BENEATH
+-    macOS 15+ / iOS 18+:       openat() with O_RESOLVE_BENEATH (same
+-                               flag name, picked up by the same #ifdef;
+-                               flag value differs from FreeBSD)
+-  Other systems fall back to the per-component O_NOFOLLOW walk below.
++  prevention is handled by the kernel via openat2(RESOLVE_BENEATH)
++  on Linux 5.6+; older systems fall back to the per-component
++  O_NOFOLLOW walk below.
+ 
+   The relpath must also not contain any ../ elements in the path.
+ */
+ 
+-/* Returns 1 if path has any "/"-separated component that is exactly
+- * "..", 0 otherwise. Used by secure_relative_open's front-door
+- * validation to reject inputs that the per-component walk fallback
+- * would otherwise resolve through ".." -- e.g. bare "..", "foo/..",
+- * "subdir/.." -- which RESOLVE_BENEATH-equivalent kernels reject in
+- * the kernel but the per-component fallback (NetBSD/OpenBSD/Solaris/
+- * Cygwin/pre-5.6 Linux) does not. */
+-static int path_has_dotdot_component(const char *path)
+-{
+-	const char *p = path;
+-
+-	while (*p) {
+-		const char *q;
+-		if (*p == '/') { p++; continue; }
+-		q = p;
+-		while (*q && *q != '/')
+-			q++;
+-		if (q - p == 2 && p[0] == '.' && p[1] == '.')
+-			return 1;
+-		p = q;
+-	}
+-	return 0;
+-}
+-
+-#if defined(__linux__) && defined(HAVE_OPENAT2)
+-/* openat2(RESOLVE_BENEATH) via the raw syscall, gated on openat2_usable() so a
+- * seccomp filter that traps openat2 with SIGSYS (e.g. the Android sandbox)
+- * makes us report ENOSYS and fall back rather than killing the process.  Only
+- * the openat2 call is gated here; a plain openat() is always safe to attempt. */
+-static int openat2_beneath(int dirfd, const char *path, const struct open_how *how)
+-{
+-	if (!openat2_usable()) {
+-		errno = ENOSYS;
+-		return -1;
+-	}
+-	return syscall(SYS_openat2, dirfd, path, how, sizeof *how);
+-}
+-
++#ifdef __linux__
+ static int secure_relative_open_linux(const char *basedir, const char *relpath, int flags, mode_t mode)
+ {
+ 	struct open_how how;
+@@ -1719,61 +1678,13 @@ static int secure_relative_open_linux(const char *basedir, const char *relpath,
+ 
+ 	if (basedir == NULL) {
+ 		dirfd = AT_FDCWD;
+-	} else if (basedir[0] == '/') {
+-		/* Absolute basedir: operator-trusted (module_dir and the
+-		 * like). Plain openat. */
+-		dirfd = openat(AT_FDCWD, basedir, O_RDONLY | O_DIRECTORY);
+-		if (dirfd == -1)
+-			return -1;
+ 	} else {
+-		/* Relative basedir: may be wire-influenced via
+-		 * --link-dest / --copy-dest / --compare-dest. Resolve it
+-		 * under the same RESOLVE_BENEATH guarantee as relpath, so
+-		 * a parent symlink on basedir cannot redirect the dirfd
+-		 * outside the CWD anchor. */
+-		struct open_how bhow;
+-		memset(&bhow, 0, sizeof bhow);
+-		bhow.flags = O_RDONLY | O_DIRECTORY;
+-		bhow.resolve = RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS;
+-		dirfd = openat2_beneath(AT_FDCWD, basedir, &bhow);
+-		if (dirfd == -1)
+-			return -1;
+-	}
+-
+-	retfd = openat2_beneath(dirfd, relpath, &how);
+-
+-	if (dirfd != AT_FDCWD)
+-		close(dirfd);
+-	return retfd;
+-}
+-#endif
+-
+-#ifdef O_RESOLVE_BENEATH
+-/* FreeBSD 13+ and macOS 15+ (Sequoia) / iOS 18+: O_RESOLVE_BENEATH is
+- * an openat() flag with the same "must not escape dirfd" semantics as
+- * Linux's RESOLVE_BENEATH. The kernel rejects ".." escapes, absolute
+- * symlinks, and symlinks whose target lies outside dirfd. (FreeBSD and
+- * Apple use different flag bit values, but the same symbolic name.) */
+-static int secure_relative_open_resolve_beneath(const char *basedir, const char *relpath, int flags, mode_t mode)
+-{
+-	int dirfd, retfd;
+-
+-	if (basedir == NULL) {
+-		dirfd = AT_FDCWD;
+-	} else if (basedir[0] == '/') {
+-		/* Absolute basedir: operator-trusted, plain openat. */
+ 		dirfd = openat(AT_FDCWD, basedir, O_RDONLY | O_DIRECTORY);
+ 		if (dirfd == -1)
+ 			return -1;
+-	} else {
+-		/* Relative basedir: confine its resolution beneath CWD
+-		 * (see secure_relative_open_linux for the rationale). */
+-		dirfd = openat(AT_FDCWD, basedir, O_RDONLY | O_DIRECTORY | O_RESOLVE_BENEATH);
+-		if (dirfd == -1)
+-			return -1;
+ 	}
+ 
+-	retfd = openat(dirfd, relpath, flags | O_RESOLVE_BENEATH, mode);
++	retfd = syscall(SYS_openat2, dirfd, relpath, &how, sizeof how);
+ 
+ 	if (dirfd != AT_FDCWD)
+ 		close(dirfd);
+@@ -1781,13 +1692,6 @@ static int secure_relative_open_resolve_beneath(const char *basedir, const char
+ }
+ #endif
+ 
+-/* The logical current directory (maintained by change_dir() in util1.c).
+- * Defined here -- rather than in util1.c -- so the test helpers that link
+- * syscall.o but not util1.o (tls, trimslash) get the definition without a
+- * weak-symbol fallback, which is not portable to PE/COFF targets (Cygwin). */
+-char curr_dir[MAXPATHLEN];
+-unsigned int curr_dir_len;
+-
+ int secure_relative_open(const char *basedir, const char *relpath, int flags, mode_t mode)
+ {
+ 	extern int am_daemon, am_chrooted;
+@@ -1895,6 +1799,16 @@ int secure_relative_open(const char *basedir, const char *relpath, int flags, mo
+ 		return -1;
+ 	}
+ 
++#ifdef __linux__
++	{
++		int fd = secure_relative_open_linux(basedir, relpath, flags, mode);
++		/* ENOSYS = kernel < 5.6 doesn't have the syscall even though
++		 * glibc/kernel-headers do; fall through to the portable path. */
++		if (fd != -1 || errno != ENOSYS)
++			return fd;
++	}
++#endif
++
+ #if !defined(O_NOFOLLOW) || !defined(O_DIRECTORY) || !defined(AT_FDCWD)
+ 	// really old system, all we can do is live with the risks
+ 	if (!basedir) {
+diff --git a/testsuite/symlink-dirlink-basis.test b/testsuite/symlink-dirlink-basis.test
+index a14eb5cf..9065dd81 100755
+--- a/testsuite/symlink-dirlink-basis.test
++++ b/testsuite/symlink-dirlink-basis.test
+@@ -26,18 +26,6 @@
+ 
+ . "$suitedir/rsync.fns"
+ 
+-# secure_relative_open() uses kernel-enforced "stay below dirfd" via
+-# openat2(RESOLVE_BENEATH) on Linux 5.6+ and openat(O_RESOLVE_BENEATH)
+-# on FreeBSD 13+. Other platforms fall back to a per-component
+-# O_NOFOLLOW walk that rejects every symlink including legitimate
+-# directory symlinks -- the very case this test exercises. Skip on
+-# those rather than report a known failure.
+-case "$(uname -s)" in
+-    SunOS|OpenBSD|NetBSD|CYGWIN*)
+-	test_skipped "secure_relative_open lacks RESOLVE_BENEATH equivalent on $(uname -s); issue #715 still affects this platform"
+-	;;
+-esac
+-
+ RSYNC_RSH="$scratchdir/src/support/lsh.sh"
+ export RSYNC_RSH
+ 

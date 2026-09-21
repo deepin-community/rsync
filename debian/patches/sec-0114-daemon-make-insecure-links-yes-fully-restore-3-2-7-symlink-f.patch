@@ -1,0 +1,171 @@
+From d6c0af82336be3a82e86751443d965a5a688d3ca Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 114/200] 5a15ea8f
+
+---
+ clientserver.c | 19 ++++++++++-------
+ generator.c    | 57 +++++++++++++++++++++++++++++++++++++++++++++++++-
+ receiver.c     | 15 +++++++++++++
+ util1.c        |  9 ++++++--
+ 4 files changed, 89 insertions(+), 11 deletions(-)
+
+diff --git a/clientserver.c b/clientserver.c
+index eb3d3275..abaa26ab 100644
+--- a/clientserver.c
++++ b/clientserver.c
+@@ -1040,14 +1040,17 @@ static int rsync_module(int f_in, int f_out, int i, const char *addr, const char
+ 		}
+ 	}
+ 
+-	/* Enable secure symlink handling for any non-chrooted daemon module.
+-	 * This prevents TOCTOU race attacks where an attacker could switch a
+-	 * directory to a symlink between path validation and file open.
+-	 * Match the gate used by the do_*_at() wrappers in syscall.c
+-	 * (am_daemon && !am_chrooted) -- the protection has nothing to do
+-	 * with symlink munging, so a module configured with
+-	 * "munge symlinks = false" must still get the secure-open path. */
+-	use_secure_symlinks = am_daemon && (!am_chrooted || module_dirlen);
++	/* Enable secure symlink handling for any non-chrooted daemon module, and
++	 * for a chroot module with a /./ inner boundary (module_dirlen) -- there
++	 * the kernel chroot confines the outer path but not the inner module, so
++	 * the receiver finish/rename path must still resolve beneath the module
++	 * root.  This prevents TOCTOU race attacks where an attacker could switch a
++	 * directory to a symlink between path validation and file open.  Match the
++	 * gate in secure_relpath_active() (syscall.c) -- the protection has nothing
++	 * to do with symlink munging, so a module configured with "munge symlinks =
++	 * false" must still get the secure-open path. */
++	use_secure_symlinks = am_daemon && (!am_chrooted || module_dirlen)
++			    && !symlink_optout_allowed();
+ 
+ 	if (gid_list.count) {
+ 		gid_t *gid_array = gid_list.items;
+diff --git a/generator.c b/generator.c
+index f8feee9f..358b1cfe 100644
+--- a/generator.c
++++ b/generator.c
+@@ -962,6 +962,7 @@ static int copy_altdest_file(const char *src, const char *dest, struct file_stru
+ static int basis_link_stat(const char *path, STRUCT_STAT *stp)
+ {
+ 	extern int am_chrooted;
++	extern int operator_path_resolve;
+ 	extern unsigned int module_dirlen;
+ #if defined AT_FDCWD && defined O_NOFOLLOW && defined O_DIRECTORY
+ 	/* The basis dir (--link-dest/--compare-dest/--copy-dest) is an operator-
+@@ -987,8 +988,62 @@ static int basis_link_stat(const char *path, STRUCT_STAT *stp)
+ 		errno = e;
+ 		return r;
+ 	}
++	/* A non-chroot daemon serving an operator/peer alt-dest basis: resolve through
++	 * the ownership walk with module-ROOT confinement (operator_path_resolve) so an
++	 * in-module symlink whose target lands OUTSIDE the module is refused -- the
++	 * basis then looks absent and the file transfers normally instead of being
++	 * stat'd/read/linked through the link (closes the --compare-dest=/E read
++	 * oracle).  "insecure links = yes" falls through to the legacy link_stat()
++	 * below, restoring 3.2.7 following.  Only an ABSOLUTE basis (rooted under the
++	 * module by check_alt_basis_dirs, so it can reach an in-module symlink) is
++	 * confined here; a RELATIVE basis (--link-dest=../01) is a dest-relative
++	 * sibling whose "../" is already clamped to the module root by sanitize_path,
++	 * and must keep the plain link_stat below (#915/#930).  The leaf is taken
++	 * under the confined parent with O_NOFOLLOW/AT_SYMLINK_NOFOLLOW, so
++	 * --copy-links can't follow a leaf symlink out of the module. */
++	if (am_daemon && !am_chrooted && path[0] == '/' && !symlink_optout_allowed()) {
++		const char *leaf;
++		int dfd, e, save = operator_path_resolve;
++		operator_path_resolve = 1;
++		dfd = owner_walk_parent(path, &leaf);
++		operator_path_resolve = save;
++		if (dfd < 0)
++			return -1;
++		if (am_root >= 0) {
++			int r = do_lstat_atfd(dfd, leaf, stp);
++			e = errno;
++			close(dfd);
++			errno = e;
++			return r;
++		}
++#ifdef SUPPORT_XATTRS
++		{
++			/* --fake-super: O_NOFOLLOW-open the held leaf (the daemon owns its
++			 * fake-super files) so the %stat xattr link_stat() would fold is
++			 * preserved while a leaf symlink is still refused. */
++			int lfd = do_open_atfd(dfd, leaf, O_RDONLY | O_NOFOLLOW | O_NONBLOCK, 0);
++			STRUCT_STAT xst;
++			e = errno;
++			close(dfd);
++			if (lfd < 0) { errno = e; return -1; }
++			if (do_fstat(lfd, stp) < 0) { e = errno; close(lfd); errno = e; return -1; }
++			if (get_stat_xattr(NULL, lfd, stp, &xst) == 0)
++				*stp = xst;
++			close(lfd);
++			return 0;
++		}
++#else
++		{
++			int r = do_lstat_atfd(dfd, leaf, stp);
++			e = errno;
++			close(dfd);
++			errno = e;
++			return r;
++		}
++#endif
++	}
+ #endif
+-	if (am_daemon && am_chrooted && module_dirlen && path[0] != '/') {
++	if (am_daemon && am_chrooted && module_dirlen && path[0] != '/' && !symlink_optout_allowed()) {
+ 		const char *slash = strrchr(path, '/');
+ 		if (slash) {
+ 			char dir[MAXPATHLEN];
+diff --git a/receiver.c b/receiver.c
+index 51b6583a..2b0808eb 100644
+--- a/receiver.c
++++ b/receiver.c
+@@ -104,6 +104,21 @@ static int secure_basis_open(const char *basedir, const char *relpath, int flags
+ 	extern int am_daemon, am_chrooted;
+ 	extern unsigned int module_dirlen;
+ 
++	/* "insecure links = yes": restore the 3.2.7 plain open so an operator/peer
++	 * alt-dest basis follows symlinks like legacy rsync, the same opt-out the
++	 * other daemon symlink sites honour. */
++	if (symlink_optout_allowed()) {
++		if (basedir) {
++			char fullpath[MAXPATHLEN];
++			if (pathjoin(fullpath, sizeof fullpath, basedir, relpath) >= sizeof fullpath) {
++				errno = ENAMETOOLONG;
++				return -1;
++			}
++			return do_open(fullpath, flags, mode);
++		}
++		return do_open(relpath, flags, mode);
++	}
++
+ 	/* A peer-supplied --partial-dir basis/staging path (operator_path_resolve set
+ 	 * by recv_files) may be absolute (module_dir-prefixed on a non-chroot daemon)
+ 	 * and traverse a symlink the secure_relative_open path can't confine: resolve
+diff --git a/util1.c b/util1.c
+index a3c181d5..5659857f 100644
+--- a/util1.c
++++ b/util1.c
+@@ -1287,7 +1287,7 @@ int change_dir(const char *dir, int set_path_only)
+ 			 * branch still anchors at the operator-trusted
+ 			 * directory rather than wherever the kernel CWD
+ 			 * happens to be. */
+-			if (am_daemon && (!am_chrooted || module_dirlen)) {
++			if (am_daemon && (!am_chrooted || module_dirlen) && !symlink_optout_allowed()) {
+ 				const char *basedir = NULL;
+ 				char prefix[MAXPATHLEN];
+ 				int dfd;
+@@ -1309,7 +1309,12 @@ int change_dir(const char *dir, int set_path_only)
+ 					chdir_failed = fchdir(dfd) != 0;
+ 					close(dfd);
+ 				}
+-			} else if (!am_chrooted && !am_sender) {
++			} else if (am_daemon && symlink_optout_allowed()) {
++				/* "insecure links = yes": restore the 3.2.7 follow-any-symlink
++				 * traversal with a plain chdir to the accumulated path, the same
++				 * legacy behaviour the per-operation sites grant under the opt-out. */
++				chdir_failed = chdir(curr_dir) != 0;
++			} else if (!am_chrooted && !am_sender && !insecure_links) {
+ 				/* Non-daemon receiver: confine the operator-named relative
+ 				 * destination like the absolute case -- refuse a component
+ 				 * symlink not owned by uid 0 or our euid, while still following

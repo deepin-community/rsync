@@ -1,3 +1,22 @@
+rsync (3.4.4+ds1-1deepin15) unstable; urgency=medium
+
+  * Rebuild the CVE patch series from upstream's v3.4-stable security
+    backport branch (v3.4.1-sec-patches3), superseding the previous per-
+    CVE patch files
+  * All 204 patches apply cleanly to the pristine 3.4.4 source, the
+    package builds without warnings, and the rsync testsuite result
+    matches upstream 3.4.4 (54 passed, 6 skipped, 0 failed)
+  * Covered CVEs: CVE-2026-53783 CVE-2026-53784 CVE-2026-53785 CVE-2026-
+    53786 CVE-2026-53788 CVE-2026-53789 CVE-2026-53790 CVE-2026-53791
+    CVE-2026-53792 CVE-2026-53793 CVE-2026-53794 CVE-2026-53795 CVE-2026-
+    53796 CVE-2026-53797 CVE-2026-53798 CVE-2026-53799 CVE-2026-53800
+    CVE-2026-53801 CVE-2026-53802 CVE-2026-53803 CVE-2026-70452 CVE-2026-
+    70453 CVE-2026-70454 CVE-2026-70455 CVE-2026-70456 CVE-2026-70457
+    CVE-2026-70458 CVE-2026-70459 CVE-2026-70460 CVE-2026-70461 CVE-2026-
+    70462 CVE-2026-70463 CVE-2026-70464
+
+ -- lichenggang <lichenggang@uniontech.com>  Mon, 21 Sep 2026 12:21:10 +0800
+
 rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
 
   * fix(cve): CVE-2026-53788

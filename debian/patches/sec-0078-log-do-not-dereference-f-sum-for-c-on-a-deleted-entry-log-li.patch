@@ -1,0 +1,22 @@
+From c3e91960bf4f3b48771141011e99dce47fceb3a9 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 078/200] 2626e207
+
+---
+ log.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/log.c b/log.c
+index 82eefc8d..21f85b7a 100644
+--- a/log.c
++++ b/log.c
+@@ -698,7 +698,7 @@ static void log_formatted(enum logcode code, const char *format, const char *op,
+ 		case 'C':
+ 			n = NULL;
+ 			if (S_ISREG(file->mode)) {
+-				if (always_checksum)
++				if (always_checksum && !(iflags & ITEM_DELETED))
+ 					n = sum_as_hex(file_sum_nni->num, F_SUM(file), 1);
+ 				else if (iflags & ITEM_TRANSFER)
+ 					n = sum_as_hex(xfer_sum_nni->num, sender_file_sum, 0);

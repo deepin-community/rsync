@@ -1,0 +1,44 @@
+From 8a1a457bb60ce8f1810e0c4ec3ddc600744e45cd Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:08 +0800
+Subject: [PATCH 051/200] e624db85
+
+---
+ exclude.c | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/exclude.c b/exclude.c
+index 62c4cc4b..e0c67eaf 100644
+--- a/exclude.c
++++ b/exclude.c
+@@ -1490,6 +1490,13 @@ void parse_filter_file(filter_rule_list *listp, const char *fname, const filter_
+ 		return;
+ 
+ 	if (*fname != '-' || fname[1] || am_server) {
++		/* This path is operator- and (via per-directory merge files like
++		 * .cvsignore) sender-controlled: a planted symlink could leak a
++		 * root-readable file through the filter parser, or redirect an
++		 * --exclude-from open via a planted parent.  Refuse symlinks not
++		 * owned by uid 0 or our euid. */
++		const char *open_path;
++		int fd;
+ 		if (daemon_filter_list.head) {
+ 			char *dir;
+ 			strlcpy(line, fname, sizeof line);
+@@ -1512,9 +1519,14 @@ void parse_filter_file(filter_rule_list *listp, const char *fname, const filter_
+ 				}
+ 				return;
+ 			}
+-			fp = fopen(line, "rb");
++			open_path = line;
+ 		} else
+-			fp = fopen(fname, "rb");
++			open_path = fname;
++		fd = safe_open_no_attacker_symlinks(open_path, O_RDONLY, 0);
++		if (fd < 0)
++			fp = NULL;
++		else if (!(fp = fdopen(fd, "rb")))
++			close(fd);
+ 	} else
+ 		fp = stdin;
+ 

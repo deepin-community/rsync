@@ -1,0 +1,46 @@
+From c940b0735470d25ee7047d6facf11ea01f9bc43a Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:12 +0800
+Subject: [PATCH 129/200] ded4fb15
+
+---
+ lib/wildmatch.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/lib/wildmatch.c b/lib/wildmatch.c
+index f3a1731e..c8e1cc8f 100644
+--- a/lib/wildmatch.c
++++ b/lib/wildmatch.c
+@@ -150,6 +150,8 @@ static int dowild(const uchar *p, const uchar *text, const uchar*const *a)
+ 		    p_ch = *++p;
+ 		    if (!p_ch)
+ 			return ABORT_ALL;
++		    if (force_lower_case && ISUPPER(p_ch))
++			p_ch = tolower(p_ch);
+ 		    if (t_ch == p_ch)
+ 			matched = TRUE;
+ 		} else if (p_ch == '-' && prev_ch && p[1] && p[1] != ']') {
+@@ -159,6 +161,8 @@ static int dowild(const uchar *p, const uchar *text, const uchar*const *a)
+ 			if (!p_ch)
+ 			    return ABORT_ALL;
+ 		    }
++		    if (force_lower_case && ISUPPER(p_ch))
++			p_ch = tolower(p_ch);
+ 		    if (t_ch <= p_ch && t_ch >= prev_ch)
+ 			matched = TRUE;
+ 		    p_ch = 0; /* This makes "prev_ch" get set to 0. */
+@@ -216,8 +220,12 @@ static int dowild(const uchar *p, const uchar *text, const uchar*const *a)
+ 		    } else /* malformed [:class:] string */
+ 			return ABORT_ALL;
+ 		    p_ch = 0; /* This makes "prev_ch" get set to 0. */
+-		} else if (t_ch == p_ch)
+-		    matched = TRUE;
++		} else {
++		    if (force_lower_case && ISUPPER(p_ch))
++			p_ch = tolower(p_ch);
++		    if (t_ch == p_ch)
++			matched = TRUE;
++		}
+ 	    } while (prev_ch = p_ch, (p_ch = *++p) != ']');
+ 	    if (matched == special || t_ch == '/')
+ 		return FALSE;

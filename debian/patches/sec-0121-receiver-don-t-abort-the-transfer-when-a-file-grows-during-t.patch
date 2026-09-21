@@ -1,0 +1,39 @@
+From 0f5825c55513691933bb3289848f0fe68f101a6b Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 121/200] 4dc8e93c
+
+---
+ receiver.c | 12 ------------
+ 1 file changed, 12 deletions(-)
+
+diff --git a/receiver.c b/receiver.c
+index 2b0808eb..c4c60a3c 100644
+--- a/receiver.c
++++ b/receiver.c
+@@ -452,12 +452,6 @@ static int receive_data(int f_in, char *fname_r, int fd_r, OFF_T size_r,
+ 					i, big_num(offset));
+ 			}
+ 
+-			if (offset + i > total_size) {
+-				rprintf(FERROR, "received more data than file length %s [%s]\n",
+-					big_num(total_size), who_am_i());
+-				exit_cleanup(RERR_PROTOCOL);
+-			}
+-
+ 			stats.literal_data += i;
+ 			cleanup_got_literal = 1;
+ 
+@@ -480,12 +474,6 @@ static int receive_data(int f_in, char *fname_r, int fd_r, OFF_T size_r,
+ 		if (i == (int)sum.count-1 && sum.remainder != 0)
+ 			len = sum.remainder;
+ 
+-		if (offset + len > total_size) {
+-			rprintf(FERROR, "received more data than file length %s [%s]\n",
+-				big_num(total_size), who_am_i());
+-			exit_cleanup(RERR_PROTOCOL);
+-		}
+-
+ 		stats.matched_data += len;
+ 
+ 		/* A block match with no mapped basis is a protocol inconsistency

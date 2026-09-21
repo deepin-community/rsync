@@ -1,0 +1,238 @@
+From 92d3f94e37f6ea8e29d197aa4986e2a9ba70e01b Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:08 +0800
+Subject: [PATCH 039/200] c7aeb639
+
+---
+ flist.c     | 24 ++++++++++++++++++++++++
+ generator.c | 53 ++++++++++++++++++++++++++++++++++++++++++++++++-----
+ receiver.c  | 19 ++++++++++++++++---
+ rsync.c     | 21 ++++++++++++++++++---
+ 4 files changed, 106 insertions(+), 11 deletions(-)
+
+diff --git a/flist.c b/flist.c
+index d44fa0cd..2b21e7e2 100644
+--- a/flist.c
++++ b/flist.c
+@@ -261,6 +261,30 @@ int link_stat(const char *path, STRUCT_STAT *stp, int follow_dirlinks)
+ #endif
+ }
+ 
++/* Held-dirfd variant of link_stat(): stat single-component `name` relative to
++ * directory fd `dfd`, instead of re-resolving a full path.  Equivalent to
++ * link_stat() only when NOT in --fake-super mode -- x_stat/x_lstat fold the
++ * fake-super %stat xattr into the result via get_stat_xattr(), which is a
++ * path-based no-op once am_root >= 0.  Callers therefore use this only when
++ * am_root >= 0 (and a valid dfd), falling back to link_stat() otherwise. */
++int link_stat_at(int dfd, const char *name, STRUCT_STAT *stp, int follow_dirlinks)
++{
++#ifdef SUPPORT_LINKS
++	if (copy_links)
++		return do_stat_atfd(dfd, name, stp);
++	if (do_lstat_atfd(dfd, name, stp) < 0)
++		return -1;
++	if (follow_dirlinks && S_ISLNK(stp->st_mode)) {
++		STRUCT_STAT st;
++		if (do_stat_atfd(dfd, name, &st) == 0 && S_ISDIR(st.st_mode))
++			*stp = st;
++	}
++	return 0;
++#else
++	return do_stat_atfd(dfd, name, stp);
++#endif
++}
++
+ static inline int path_is_daemon_excluded(char *path, int ignore_filename)
+ {
+ 	if (daemon_filter_list.head) {
+diff --git a/generator.c b/generator.c
+index 09e276d1..6117c7a5 100644
+--- a/generator.c
++++ b/generator.c
+@@ -1216,6 +1216,46 @@ static BOOL is_below(struct file_struct *file, struct file_struct *subtree)
+  *
+  * Note that f_out is set to -1 when doing final directory-permission and
+  * modification-time repair. */
++
++/* Held-dirfd helpers for the per-entry ops below: when the secure resolver is
++ * active they act on the entry's basename relative to its cached directory fd
++ * (held_dfd_for, keyed on file->dirname), else fall back to the full-path
++ * do_*_at wrappers (behaviour-identical).  held_dfd_for() declines when fname
++ * isn't in file->dirname (e.g. the single-file local_name dest), and the leaf
++ * is derived from fname, not file->basename. */
++static int gen_entry_stat(const char *fname, struct file_struct *file,
++			  STRUCT_STAT *stp, int follow_dirlinks)
++{
++	int dfd;
++	/* link_stat_at folds in no fake-super xattr, so only use it when
++	 * am_root >= 0 (where link_stat's get_stat_xattr is a no-op anyway). */
++	if (am_root >= 0 && (dfd = held_dfd_for(fname, file)) >= 0) {
++		const char *slash = strrchr(fname, '/');
++		return link_stat_at(dfd, slash ? slash + 1 : fname, stp, follow_dirlinks);
++	}
++	return link_stat(fname, stp, follow_dirlinks);
++}
++
++static int gen_entry_mkdir(char *fname, struct file_struct *file, mode_t mode)
++{
++	int dfd = held_dfd_for(fname, file);
++	if (dfd >= 0) {
++		const char *slash = strrchr(fname, '/');
++		return do_mkdir_atfd(dfd, slash ? slash + 1 : fname, mode);
++	}
++	return do_mkdir_at(fname, mode);
++}
++
++static int gen_entry_chmod(const char *fname, struct file_struct *file, mode_t mode)
++{
++	int dfd = held_dfd_for(fname, file);
++	if (dfd >= 0) {
++		const char *slash = strrchr(fname, '/');
++		return do_chmod_atfd(dfd, slash ? slash + 1 : fname, mode);
++	}
++	return do_chmod_at(fname, mode);
++}
++
+ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ 			   int itemizing, enum logcode code, int f_out)
+ {
+@@ -1353,7 +1393,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ 		}
+ 		parent_dirname = dn;
+ 
+-		statret = link_stat(fname, &sx.st, keep_dirlinks && is_dir);
++		statret = gen_entry_stat(fname, file, &sx.st, keep_dirlinks && is_dir);
+ 		stat_errno = errno;
+ 	}
+ 
+@@ -1439,7 +1479,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ 			 && (stype == FT_DIR
+ 			  || delete_item(fname, sx.st.st_mode, del_opts | DEL_FOR_DIR) != 0))
+ 				goto cleanup; /* Any errors get reported later. */
+-			if (do_mkdir_at(fname, (file->mode|added_perms) & 0700) == 0)
++			if (gen_entry_mkdir(fname, file, (file->mode|added_perms) & 0700) == 0)
+ 				file->flags |= FLAG_DIR_CREATED;
+ 			goto cleanup;
+ 		}
+@@ -1481,10 +1521,13 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ 			itemize(fnamecmp, file, ndx, statret, &sx,
+ 				statret ? ITEM_LOCAL_CHANGE : 0, 0, NULL);
+ 		}
+-		if (real_ret != 0 && do_mkdir_at(fname,file->mode|added_perms) < 0 && errno != EEXIST) {
++		if (real_ret != 0 && gen_entry_mkdir(fname, file, file->mode|added_perms) < 0 && errno != EEXIST) {
++			/* The parent may have just been created by make_path(), so
++			 * drop any cached (failed) dir fd before the retry. */
++			reset_dir_fd_cache();
+ 			if (!relative_paths || errno != ENOENT
+ 			 || make_path(fname, MKP_DROP_NAME | MKP_SKIP_SLASH) < 0
+-			 || (do_mkdir_at(fname, file->mode|added_perms) < 0 && errno != EEXIST)) {
++			 || (gen_entry_mkdir(fname, file, file->mode|added_perms) < 0 && errno != EEXIST)) {
+ 				rsyserr(FERROR_XFER, errno,
+ 					"recv_generator: mkdir %s failed",
+ 					full_fname(fname));
+@@ -1511,7 +1554,7 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ #ifdef HAVE_CHMOD
+ 		if (!am_root && (file->mode & S_IRWXU) != S_IRWXU && dir_tweaking) {
+ 			mode_t mode = file->mode | S_IRWXU;
+-			if (do_chmod_at(fname, mode) < 0) {
++			if (gen_entry_chmod(fname, file, mode) < 0) {
+ 				rsyserr(FERROR_XFER, errno,
+ 					"failed to modify permissions on %s",
+ 					full_fname(fname));
+diff --git a/receiver.c b/receiver.c
+index 30855e13..4b370524 100644
+--- a/receiver.c
++++ b/receiver.c
+@@ -670,6 +670,8 @@ int recv_files(int f_in, int f_out, char *local_name)
+ 		ndx = read_ndx_and_attrs(f_in, f_out, &iflags, &fnamecmp_type,
+ 					 xname, &xlen);
+ 		if (ndx == NDX_DONE) {
++			/* Chunk/phase boundary: drop any held dir fd. */
++			reset_dir_fd_cache();
+ 			if (!am_server && cur_flist) {
+ 				set_current_file_index(NULL, 0);
+ 				if (INFO_GTE(PROGRESS, 2))
+@@ -880,9 +882,20 @@ int recv_files(int f_in, int f_out, char *local_name)
+ 				fnamecmp = fname;
+ 		}
+ 
+-		/* open the file (secure_basis_open tolerates an operator-trusted
+-		 * absolute fnamecmp, e.g. an absolute --partial-dir basis) */
+-		fd1 = secure_basis_open(basedir, fnamecmp, O_RDONLY, 0);
++		/* Open the delta basis.  When it lives in the entry's own dir (no
++		 * alternate basedir), read it via the held dir fd with O_NOFOLLOW: a
++		 * regular-file basis is never legitimately a symlink, and refusing a
++		 * planted one avoids both an escape and a basis-content info-leak.
++		 * Otherwise use secure_basis_open, which also tolerates an operator-
++		 * trusted absolute fnamecmp (e.g. an absolute --partial-dir basis). */
++		{
++			int bdfd;
++			if (!basedir && (bdfd = held_dfd_for(fnamecmp, file)) >= 0) {
++				const char *slash = strrchr(fnamecmp, '/');
++				fd1 = do_open_atfd(bdfd, slash ? slash + 1 : fnamecmp, O_RDONLY, 0);
++			} else
++				fd1 = secure_basis_open(basedir, fnamecmp, O_RDONLY, 0);
++		}
+ 
+ 		if (fd1 == -1 && protocol_version < 29) {
+ 			if (fnamecmp != fname) {
+diff --git a/rsync.c b/rsync.c
+index 1d2ae82a..932068a9 100644
+--- a/rsync.c
++++ b/rsync.c
+@@ -494,6 +494,8 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 	int change_uid, change_gid;
+ 	mode_t new_mode = file->mode;
+ 	int inherit;
++	int dfd = -1;            /* held dir fd for the entry's own dir, or -1 */
++	const char *leaf = NULL; /* leaf of fname relative to dfd */
+ 
+ 	if (!sxp) {
+ 		if (dry_run)
+@@ -509,6 +511,14 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 	} else
+ 		inherit = !preserve_perms && file->flags & FLAG_DIR_CREATED;
+ 
++	/* Resolve the entry's directory once; the chown/chmod/times ops below
++	 * issue single-component *at() calls against it.  -1 => full-path wrappers. */
++	dfd = held_dfd_for(fname, file);
++	if (dfd >= 0) {
++		const char *slash = strrchr(fname, '/');
++		leaf = slash ? slash + 1 : fname;
++	}
++
+ 	if (inherit && S_ISDIR(new_mode) && sxp->st.st_mode & S_ISGID) {
+ 		/* We just created this directory and its setgid
+ 		 * bit is on, so make sure it stays on. */
+@@ -547,7 +557,8 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 		if (am_root >= 0) {
+ 			uid_t uid = change_uid ? (uid_t)F_OWNER(file) : sxp->st.st_uid;
+ 			gid_t gid = change_gid ? (gid_t)F_GROUP(file) : sxp->st.st_gid;
+-			if (do_lchown_at(fname, uid, gid) != 0) {
++			if ((dfd >= 0 ? do_lchown_atfd(dfd, leaf, uid, gid)
++				      : do_lchown_at(fname, uid, gid)) != 0) {
+ 				/* We shouldn't have attempted to change uid
+ 				 * or gid unless have the privilege. */
+ 				rsyserr(FERROR_XFER, errno, "%s %s failed",
+@@ -631,7 +642,9 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 	}
+ #endif
+ 	if (updated & (UPDATED_MTIME|UPDATED_ATIME)) {
+-		int ret = set_times(fname, &sx2.st);
++		int ret = dfd >= 0 ? set_times_at(dfd, leaf, &sx2.st) : -2;
++		if (ret == -2)
++			ret = set_times(fname, &sx2.st);
+ 		if (ret < 0) {
+ 			rsyserr(FERROR_XFER, errno, "failed to set times on %s", full_fname(fname));
+ 			goto cleanup;
+@@ -657,7 +670,9 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 
+ #ifdef HAVE_CHMOD
+ 	if (!BITS_EQUAL(sxp->st.st_mode, new_mode, CHMOD_BITS)) {
+-		int ret = am_root < 0 ? 0 : do_chmod_at(fname, new_mode);
++		int ret = am_root < 0 ? 0
++			: dfd >= 0 && !S_ISLNK(new_mode) ? do_chmod_atfd(dfd, leaf, new_mode)
++			: do_chmod_at(fname, new_mode);
+ 		if (ret < 0) {
+ 			rsyserr(FERROR_XFER, errno,
+ 				"failed to set permissions on %s",

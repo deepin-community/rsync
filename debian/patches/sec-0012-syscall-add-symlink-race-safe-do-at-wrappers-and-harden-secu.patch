@@ -1,0 +1,356 @@
+From 96805ef45258fff4b89e2138564353fe805bd9fe Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:06 +0800
+Subject: [PATCH 012/200] 72a66344
+
+---
+ Makefile.in                          |   8 +-
+ syscall.c                            | 202 ++++++++-------------------
+ testsuite/alt-dest-symlink-race.test |  17 ---
+ 3 files changed, 68 insertions(+), 159 deletions(-)
+
+diff --git a/Makefile.in b/Makefile.in
+index af7286cb..88f4f5cd 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -58,12 +58,12 @@ TLS_OBJ = tls.o syscall.o android.o util2.o t_stub.o lib/compat.o lib/snprintf.o
+ # Programs we must have to run the test cases
+ CHECK_PROGS = rsync$(EXEEXT) tls$(EXEEXT) getgroups$(EXEEXT) getfsdev$(EXEEXT) \
+ 	testrun$(EXEEXT) trimslash$(EXEEXT) t_unsafe$(EXEEXT) t_chmod_secure$(EXEEXT) \
+-	wildtest$(EXEEXT) simdtest$(EXEEXT)
++	t_secure_relpath$(EXEEXT) wildtest$(EXEEXT) simdtest$(EXEEXT)
+ 
+ CHECK_SYMLINKS = testsuite/chown-fake.test testsuite/devices-fake.test testsuite/xattrs-hlink.test
+ 
+ # Objects for CHECK_PROGS to clean
+-CHECK_OBJS=tls.o testrun.o getgroups.o getfsdev.o t_stub.o t_unsafe.o t_chmod_secure.o trimslash.o wildtest.o
++CHECK_OBJS=tls.o testrun.o getgroups.o getfsdev.o t_stub.o t_unsafe.o t_chmod_secure.o t_secure_relpath.o trimslash.o wildtest.o
+ 
+ # note that the -I. is needed to handle config.h when using VPATH
+ .c.o:
+@@ -190,6 +190,10 @@ T_CHMOD_SECURE_OBJ = t_chmod_secure.o syscall.o util1.o util2.o t_stub.o lib/com
+ t_chmod_secure$(EXEEXT): $(T_CHMOD_SECURE_OBJ)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(T_CHMOD_SECURE_OBJ) $(LIBS)
+ 
++T_SECURE_RELPATH_OBJ = t_secure_relpath.o syscall.o util1.o util2.o t_stub.o lib/compat.o lib/snprintf.o lib/wildmatch.o lib/permstring.o
++t_secure_relpath$(EXEEXT): $(T_SECURE_RELPATH_OBJ)
++	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(T_SECURE_RELPATH_OBJ) $(LIBS)
++
+ .PHONY: conf
+ conf: configure.sh config.h.in
+ 
+diff --git a/syscall.c b/syscall.c
+index 02c2848a..0f92d8b9 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -203,6 +203,11 @@ int do_symlink_at(const char *lnk, const char *path)
+ 	if (!am_daemon || am_chrooted)
+ 		return do_symlink(lnk, path);
+ 
++#if defined NO_SYMLINK_XATTRS || defined NO_SYMLINK_USER_XATTRS
++	if (am_root < 0)
++		return do_symlink(lnk, path);
++#endif
++
+ 	if (!path || !*path || *path == '/')
+ 		return do_symlink(lnk, path);
+ 
+@@ -223,34 +228,6 @@ int do_symlink_at(const char *lnk, const char *path)
+ 	if (dfd < 0)
+ 		return -1;
+ 
+-#if defined NO_SYMLINK_XATTRS || defined NO_SYMLINK_USER_XATTRS
+-	/* For --fake-super, do_symlink writes the link target into a
+-	 * regular file rather than creating a real symlink. Do that
+-	 * here against the secure dirfd, with O_NOFOLLOW so a pre-
+-	 * planted symlink at the basename can't redirect the file
+-	 * creation. (Previously the fake-super branch fell through to
+-	 * the bare-path do_symlink at the top of the function.) */
+-	if (am_root < 0) {
+-		int len = strlen(lnk);
+-		int fd = openat(dfd, bname,
+-				O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW,
+-				S_IWUSR | S_IRUSR);
+-		if (fd < 0) {
+-			e = errno;
+-			close(dfd);
+-			errno = e;
+-			return -1;
+-		}
+-		ret = (write(fd, lnk, len) == len) ? 0 : -1;
+-		if (close(fd) < 0)
+-			ret = -1;
+-		e = errno;
+-		close(dfd);
+-		errno = e;
+-		return ret;
+-	}
+-#endif
+-
+ 	ret = symlinkat(lnk, dfd, bname);
+ 	e = errno;
+ 	close(dfd);
+@@ -526,18 +503,13 @@ int do_mknod(const char *pathname, mode_t mode, dev_t dev)
+   mknodat() against that dirfd. mknodat() covers both regular-file
+   (S_IFREG with dev=0) and FIFO (S_IFIFO) and device-node creation.
+ 
+-  Fake-super (am_root < 0) is handled inline against the secure
+-  parent dirfd: it creates a regular empty file (the same file-as-
+-  metadata-placeholder pattern do_mknod uses) via openat() with
+-  O_NOFOLLOW. Sockets fall through to do_mknod() because their
+-  bind(2) takes a path argument with no portable bindat() variant;
+-  this is documented as a residual.
++  Falls through to do_mknod() for fake-super (am_root < 0) and for
++  sockets, both of which use auxiliary path-based syscalls that
++  don't have an *at() variant in any portable form.
+ */
+ int do_mknod_at(const char *pathname, mode_t mode, dev_t dev)
+ {
+-	/* HAVE_MKNODAT: older Darwin declares AT_FDCWD but not mknodat(), so
+-	 * the at-variant won't build there; fall back to do_mknod() (#896). */
+-#if defined(AT_FDCWD) && defined(HAVE_MKNODAT)
++#ifdef AT_FDCWD
+ 	extern int am_daemon, am_chrooted;
+ 	char dirpath[MAXPATHLEN];
+ 	const char *bname;
+@@ -551,6 +523,9 @@ int do_mknod_at(const char *pathname, mode_t mode, dev_t dev)
+ 	if (!am_daemon || am_chrooted)
+ 		return do_mknod(pathname, mode, dev);
+ 
++	if (am_root < 0)
++		return do_mknod(pathname, mode, dev);
++
+ #if !defined MKNOD_CREATES_SOCKETS && defined HAVE_SYS_UN_H
+ 	if (S_ISSOCK(mode))
+ 		return do_mknod(pathname, mode, dev);
+@@ -576,30 +551,7 @@ int do_mknod_at(const char *pathname, mode_t mode, dev_t dev)
+ 	if (dfd < 0)
+ 		return -1;
+ 
+-	if (am_root < 0) {
+-		/* For --fake-super, do_mknod creates a regular empty
+-		 * file as a placeholder for the special-file metadata
+-		 * (which is stored in xattrs elsewhere). Do that against
+-		 * the secure dirfd, with O_NOFOLLOW so a pre-planted
+-		 * symlink at the basename can't redirect the file
+-		 * creation. */
+-		int fd = openat(dfd, bname,
+-				O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW,
+-				S_IWUSR | S_IRUSR);
+-		if (fd < 0) {
+-			e = errno;
+-			close(dfd);
+-			errno = e;
+-			return -1;
+-		}
+-		ret = (close(fd) < 0) ? -1 : 0;
+-		e = errno;
+-		close(dfd);
+-		errno = e;
+-		return ret;
+-	}
+-
+-#if !defined MKNOD_CREATES_FIFOS && defined HAVE_MKFIFO && defined HAVE_MKFIFOAT
++#if !defined MKNOD_CREATES_FIFOS && defined HAVE_MKFIFO
+ 	if (S_ISFIFO(mode))
+ 		ret = mkfifoat(dfd, bname, mode);
+ 	else
+@@ -1669,6 +1621,30 @@ int do_open_nofollow(const char *pathname, int flags)
+   The relpath must also not contain any ../ elements in the path.
+ */
+ 
++/* Returns 1 if path has any "/"-separated component that is exactly
++ * "..", 0 otherwise. Used by secure_relative_open's front-door
++ * validation to reject inputs that the per-component walk fallback
++ * would otherwise resolve through ".." -- e.g. bare "..", "foo/..",
++ * "subdir/.." -- which RESOLVE_BENEATH-equivalent kernels reject in
++ * the kernel but the per-component fallback (NetBSD/OpenBSD/Solaris/
++ * Cygwin/pre-5.6 Linux) does not. */
++static int path_has_dotdot_component(const char *path)
++{
++	const char *p = path;
++
++	while (*p) {
++		const char *q;
++		if (*p == '/') { p++; continue; }
++		q = p;
++		while (*q && *q != '/')
++			q++;
++		if (q - p == 2 && p[0] == '.' && p[1] == '.')
++			return 1;
++		p = q;
++	}
++	return 0;
++}
++
+ #ifdef __linux__
+ static int secure_relative_open_linux(const char *basedir, const char *relpath, int flags, mode_t mode)
+ {
+@@ -1682,10 +1658,25 @@ static int secure_relative_open_linux(const char *basedir, const char *relpath,
+ 
+ 	if (basedir == NULL) {
+ 		dirfd = AT_FDCWD;
+-	} else {
++	} else if (basedir[0] == '/') {
++		/* Absolute basedir: operator-trusted (module_dir and the
++		 * like). Plain openat. */
+ 		dirfd = openat(AT_FDCWD, basedir, O_RDONLY | O_DIRECTORY);
+ 		if (dirfd == -1)
+ 			return -1;
++	} else {
++		/* Relative basedir: may be wire-influenced via
++		 * --link-dest / --copy-dest / --compare-dest. Resolve it
++		 * under the same RESOLVE_BENEATH guarantee as relpath, so
++		 * a parent symlink on basedir cannot redirect the dirfd
++		 * outside the CWD anchor. */
++		struct open_how bhow;
++		memset(&bhow, 0, sizeof bhow);
++		bhow.flags = O_RDONLY | O_DIRECTORY;
++		bhow.resolve = RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS;
++		dirfd = syscall(SYS_openat2, AT_FDCWD, basedir, &bhow, sizeof bhow);
++		if (dirfd == -1)
++			return -1;
+ 	}
+ 
+ 	retfd = syscall(SYS_openat2, dirfd, relpath, &how, sizeof how);
+@@ -1708,10 +1699,17 @@ static int secure_relative_open_resolve_beneath(const char *basedir, const char
+ 
+ 	if (basedir == NULL) {
+ 		dirfd = AT_FDCWD;
+-	} else {
++	} else if (basedir[0] == '/') {
++		/* Absolute basedir: operator-trusted, plain openat. */
+ 		dirfd = openat(AT_FDCWD, basedir, O_RDONLY | O_DIRECTORY);
+ 		if (dirfd == -1)
+ 			return -1;
++	} else {
++		/* Relative basedir: confine its resolution beneath CWD
++		 * (see secure_relative_open_linux for the rationale). */
++		dirfd = openat(AT_FDCWD, basedir, O_RDONLY | O_DIRECTORY | O_RESOLVE_BENEATH);
++		if (dirfd == -1)
++			return -1;
+ 	}
+ 
+ 	retfd = openat(dirfd, relpath, flags | O_RESOLVE_BENEATH, mode);
+@@ -1735,48 +1733,6 @@ int secure_relative_open(const char *basedir, const char *relpath, int flags, mo
+ 		errno = EINVAL;
+ 		return -1;
+ 	}
+-
+-	/* Sanitizing daemon only (am_daemon && !am_chrooted).  Here we have chdir'd
+-	 * into a sub-dir of the module (the transfer destination), so a relative
+-	 * alt-dest like "../01" may legitimately climb to a sibling that is still
+-	 * inside the module (#915).  Confining beneath the cwd would reject that
+-	 * climb.  Re-anchor at the module root -- the real trust boundary -- by
+-	 * prefixing the cwd's module-relative path (from rsync's logical curr_dir[],
+-	 * a guaranteed lexical prefix of module_dir, unlike getcwd()) and resolving
+-	 * beneath module_dir; RESOLVE_BENEATH then allows in-module climbs and still
+-	 * rejects escapes.  Only for paths that contain "..".  module_dirlen is 0 for
+-	 * a `path = /` module (clientserver.c), so we gate on module_dir, not its
+-	 * length, to cover that case too -- the prefix check below treats
+-	 * module_dirlen 0 as "module root is /". */
+-	if (am_daemon && !am_chrooted
+-	 && module_dir && module_dir[0] == '/'
+-	 && (basedir == NULL || basedir[0] != '/')
+-	 && (path_has_dotdot_component(relpath)
+-	  || (basedir && path_has_dotdot_component(basedir)))) {
+-		const char *p;
+-		int n;
+-		if (curr_dir_len >= module_dirlen
+-		 && strncmp(curr_dir, module_dir, module_dirlen) == 0
+-		 && (curr_dir[module_dirlen] == '\0' || curr_dir[module_dirlen] == '/')) {
+-			for (p = curr_dir + module_dirlen; *p == '/'; p++) {}
+-			if (basedir)
+-				n = snprintf(modrel_buf, sizeof modrel_buf, "%s%s%s/%s",
+-					     p, *p ? "/" : "", basedir, relpath);
+-			else
+-				n = snprintf(modrel_buf, sizeof modrel_buf, "%s%s%s",
+-					     p, *p ? "/" : "", relpath);
+-			if (n < 0 || n >= (int)sizeof modrel_buf) {
+-				errno = ENAMETOOLONG;
+-				return -1;
+-			}
+-			basedir = module_dir;	/* absolute, operator-trusted anchor */
+-			relpath = modrel_buf;
+-			reanchored = 1;
+-		}
+-		/* else: cwd not under module root as expected -- fall through to the
+-		 * front-door rejection below (fail safe). */
+-	}
+-
+ 	/* Reject any path with a literal ".." component (bare "..",
+ 	 * "../foo", "foo/..", "foo/../bar", "subdir/.."). The previous
+ 	 * substring-based check caught only "../" prefix and "/../"
+@@ -1785,41 +1741,7 @@ int secure_relative_open(const char *basedir, const char *relpath, int flags, mo
+ 	 * and pre-5.6 Linux. RESOLVE_BENEATH on Linux/FreeBSD/macOS
+ 	 * catches some of these in-kernel with EXDEV, but the front
+ 	 * door must reject them consistently with EINVAL across all
+-	 * platforms so callers can rely on the validation.  Skipped for a
+-	 * re-anchored path: its ".." is deliberate, stays within the module,
+-	 * and is adjudicated by RESOLVE_BENEATH below (the portable fallback
+-	 * re-rejects it -- see there). */
+-	if (!reanchored) {
+-		if (path_has_dotdot_component(relpath)) {
+-			errno = EINVAL;
+-			return -1;
+-		}
+-		if (basedir && basedir[0] != '/' && path_has_dotdot_component(basedir)) {
+-			errno = EINVAL;
+-			return -1;
+-		}
+-	}
+-
+-#if defined(__linux__) && defined(HAVE_OPENAT2)
+-	{
+-		int fd = secure_relative_open_linux(basedir, relpath, flags, mode);
+-		/* ENOSYS = kernel < 5.6 doesn't have the syscall even though
+-		 * glibc/kernel-headers do; fall through to the portable path. */
+-		if (fd != -1 || errno != ENOSYS)
+-			return fd;
+-	}
+-#endif
+-
+-#ifdef O_RESOLVE_BENEATH
+-	return secure_relative_open_resolve_beneath(basedir, relpath, flags, mode);
+-#endif
+-
+-	/* Portable fallback only (no kernel RESOLVE_BENEATH): the per-component
+-	 * O_NOFOLLOW walk below can't adjudicate ".." safely, so reject it here --
+-	 * even for a re-anchored path.  This re-breaks --link-dest=../01 on
+-	 * openat2/O_RESOLVE_BENEATH-less platforms (NetBSD/OpenBSD/Solaris/Cygwin/
+-	 * pre-5.6 Linux), trading function for safety; on the kernel paths above
+-	 * RESOLVE_BENEATH already allowed the in-module climb. */
++	 * platforms so callers can rely on the validation. */
+ 	if (path_has_dotdot_component(relpath)) {
+ 		errno = EINVAL;
+ 		return -1;
+diff --git a/testsuite/alt-dest-symlink-race.test b/testsuite/alt-dest-symlink-race.test
+index fd36c6e6..2256f2f2 100755
+--- a/testsuite/alt-dest-symlink-race.test
++++ b/testsuite/alt-dest-symlink-race.test
+@@ -62,25 +62,8 @@ echo "OUTSIDE_SECRET_DATA" > "$src/target.txt"
+ touch -r "$outside/target.txt" "$src/target.txt"
+ chmod 0644 "$src/target.txt"
+ 
+-# When running as root the daemon would drop to "nobody" by
+-# default, which can't write into the test scratch dir. Force the
+-# daemon to keep our uid/gid in that case so the basis-link
+-# transfer can actually create the destination file. (Non-root
+-# can't specify uid/gid in rsyncd.conf -- comment them out then.)
+-my_uid=`get_testuid`
+-root_uid=`get_rootuid`
+-root_gid=`get_rootgid`
+-uid_setting="uid = $root_uid"
+-gid_setting="gid = $root_gid"
+-if test x"$my_uid" != x"$root_uid"; then
+-    uid_setting="#$uid_setting"
+-    gid_setting="#$gid_setting"
+-fi
+-
+ cat > "$conf" <<EOF
+ use chroot = no
+-$uid_setting
+-$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload]
+     path = $mod

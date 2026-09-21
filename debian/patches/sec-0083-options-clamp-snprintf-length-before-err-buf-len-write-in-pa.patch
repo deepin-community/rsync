@@ -1,0 +1,22 @@
+From 30332ae564c2311c18c3ca58caccdd240b6c350e Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 083/200] ada5da09
+
+---
+ options.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/options.c b/options.c
+index 4605f836..ac7c9f6e 100644
+--- a/options.c
++++ b/options.c
+@@ -1180,6 +1180,8 @@ failure:
+ 			min_max, do_big_num(limit, 3, NULL),
+ 			unlimited_0 && min_max[1] == 'i' ? " or 0 for unlimited" : "");
+ 	}
++	if (len < 0 || len > (int)sizeof err_buf - 2)
++		len = sizeof err_buf - 2;
+ 	err_buf[len] = '\n';
+ 	err_buf[len+1] = '\0';
+ 	return -1;

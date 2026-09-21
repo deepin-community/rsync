@@ -1,0 +1,67 @@
+From ed648031c5c9ba913f0e7b82d0e3903310302054 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:08 +0800
+Subject: [PATCH 052/200] 8639f647
+
+---
+ clientserver.c | 2 +-
+ receiver.c     | 3 ++-
+ util1.c        | 4 ++--
+ 3 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/clientserver.c b/clientserver.c
+index d6cfedd6..a845aae7 100644
+--- a/clientserver.c
++++ b/clientserver.c
+@@ -1036,7 +1036,7 @@ static int rsync_module(int f_in, int f_out, int i, const char *addr, const char
+ 	 * (am_daemon && !am_chrooted) -- the protection has nothing to do
+ 	 * with symlink munging, so a module configured with
+ 	 * "munge symlinks = false" must still get the secure-open path. */
+-	use_secure_symlinks = am_daemon && !am_chrooted;
++	use_secure_symlinks = am_daemon && (!am_chrooted || module_dirlen);
+ 
+ 	if (gid_list.count) {
+ 		gid_t *gid_array = gid_list.items;
+diff --git a/receiver.c b/receiver.c
+index d17e412a..37dabc80 100644
+--- a/receiver.c
++++ b/receiver.c
+@@ -100,6 +100,7 @@ static int updating_basis_or_equiv;
+ static int secure_basis_open(const char *basedir, const char *relpath, int flags, mode_t mode)
+ {
+ 	extern int am_daemon, am_chrooted;
++	extern unsigned int module_dirlen;
+ 
+ 	/* The confined resolver is only needed for the sanitizing daemon
+ 	 * (am_daemon && !am_chrooted, i.e. use_secure_symlinks).  Local /
+@@ -108,7 +109,7 @@ static int secure_basis_open(const char *basedir, const char *relpath, int flags
+ 	 * --link-dest=../01 must resolve against the cwd as a bare open did before
+ 	 * the hardening (confining it would reject the legitimate sibling "..",
+ 	 * #915). */
+-	if (!am_daemon || am_chrooted) {
++	if (!am_daemon || (am_chrooted && !module_dirlen)) {
+ 		if (basedir) {
+ 			char fullpath[MAXPATHLEN];
+ 			if (pathjoin(fullpath, sizeof fullpath, basedir, relpath) >= sizeof fullpath) {
+diff --git a/util1.c b/util1.c
+index 4f7a7e98..d51f37a2 100644
+--- a/util1.c
++++ b/util1.c
+@@ -1363,7 +1363,7 @@ int change_dir(const char *dir, int set_path_only)
+ 			 * could redirect the daemon's CWD out of the module before any
+ 			 * transfer begins.  For daemon receivers, refuse symlinks not
+ 			 * owned by uid 0 or our euid in the path walk. */
+-			if (am_daemon && !am_chrooted) {
++			if (am_daemon && (!am_chrooted || module_dirlen)) {
+ 				int dfd = safe_open_no_attacker_symlinks(dir, O_RDONLY | O_DIRECTORY, 0);
+ 				if (dfd < 0)
+ 					return 0;
+@@ -1410,7 +1410,7 @@ int change_dir(const char *dir, int set_path_only)
+ 			 * branch still anchors at the operator-trusted
+ 			 * directory rather than wherever the kernel CWD
+ 			 * happens to be. */
+-			if (am_daemon && !am_chrooted) {
++			if (am_daemon && (!am_chrooted || module_dirlen)) {
+ 				const char *basedir = NULL;
+ 				char prefix[MAXPATHLEN];
+ 				int dfd;

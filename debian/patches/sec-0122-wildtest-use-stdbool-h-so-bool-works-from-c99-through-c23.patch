@@ -1,0 +1,24 @@
+From c258b33a44a678a2f754bf8644644521380656c6 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 122/200] 9108f520
+
+---
+ wildtest.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/wildtest.c b/wildtest.c
+index 10cab003..7e31bb3b 100644
+--- a/wildtest.c
++++ b/wildtest.c
+@@ -32,9 +32,7 @@ int fnmatch_errors = 0;
+ 
+ int wildmatch_errors = 0;
+ 
+-#if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L
+-typedef char bool;
+-#endif
++#include <stdbool.h>
+ 
+ int output_iterations = 0;
+ int explode_mod = 0;

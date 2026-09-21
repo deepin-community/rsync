@@ -1,0 +1,463 @@
+From cf4c21ced610cd35bb0ceacc3b8796b5ad00c67a Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 116/200] 8cbfd8a4
+
+---
+ acls.c      |  2 +-
+ backup.c    | 88 +++++++++++++++++++++++++++++++++++++++--------------
+ flist.c     |  2 +-
+ generator.c | 54 +++++++++++++++++++++++++++++---
+ hlink.c     |  2 +-
+ t_stub.c    |  2 +-
+ util1.c     | 18 ++++++-----
+ xattrs.c    | 45 +++++++++++++++------------
+ 8 files changed, 155 insertions(+), 58 deletions(-)
+
+diff --git a/acls.c b/acls.c
+index c9f339c5..b860515c 100644
+--- a/acls.c
++++ b/acls.c
+@@ -599,7 +599,7 @@ static int get_rsync_acl(int fd, int dirfd, const char *leaf, const char *fname,
+ 		size_t len;
+ 		int cnt;
+ 
+-		if ((buf = get_xattr_acl(fname, type == SMB_ACL_TYPE_ACCESS, &len)) == NULL)
++		if ((buf = get_xattr_acl(fname, fd, type == SMB_ACL_TYPE_ACCESS, &len)) == NULL)
+ 			return 0;
+ 		cnt = (len - 4*4) / (4+4);
+ 		if (len < 4*4 || len != (size_t)cnt*(4+4) + 4*4) {
+diff --git a/backup.c b/backup.c
+index fde11cc9..12ede66f 100644
+--- a/backup.c
++++ b/backup.c
+@@ -35,6 +35,32 @@ extern char backup_dir_buf[MAXPATHLEN];
+ extern char *backup_suffix;
+ extern char *backup_dir;
+ 
++/* Pin a backup SOURCE leaf with a confined O_NOFOLLOW fd (via the operator
++ * owner-walk resolver, like set_file_attrs's op_leaf_fd) so the ACL/xattr the
++ * backup caches off it are read through the held fd -- a parent-symlink race
++ * can't redirect the read out of the module.  Returns -1 for a non-hardened
++ * receiver (caller path-reads) or for a raced/absent leaf on a hardened one
++ * (caller skips the cache rather than read through a flippable path; use
++ * backup_metadata_hardened() to tell the two -1 cases apart). */
++int backup_metadata_hardened(void)
++{
++	return secure_relpath_active() && !symlink_optout_allowed();
++}
++
++int backup_source_fd(const char *path)
++{
++#if defined AT_FDCWD && defined O_NOFOLLOW
++	if (backup_metadata_hardened() && path && *path) {
++		int save = operator_path_resolve, fd;
++		operator_path_resolve = 1;
++		fd = do_open_at(path, O_RDONLY | O_NONBLOCK | O_NOCTTY | O_CLOEXEC, 0);
++		operator_path_resolve = save;
++		return fd;
++	}
++#endif
++	return -1;
++}
++
+ /* Returns -1 on error, 0 on missing dir, and 1 on present dir. */
+ static int validate_backup_dir(void)
+ {
+@@ -121,18 +147,27 @@ static BOOL copy_valid_path(const char *fname)
+ 			struct file_struct *file;
+ 			if (!(file = make_file(rel, NULL, NULL, 0, NO_FILTERS)))
+ 				continue;
+-#ifdef SUPPORT_ACLS
+-			if (preserve_acls && !S_ISLNK(file->mode)) {
+-				get_acl(rel, &sx);
+-				cache_tmp_acl(file, &sx);
+-				free_acl(&sx);
++#if defined SUPPORT_ACLS || defined SUPPORT_XATTRS
++			{	/* read the source dir's ACL/xattr through a confined fd */
++			int bfd = backup_source_fd(rel);
++			if (!backup_metadata_hardened() || bfd >= 0) {
++# ifdef SUPPORT_ACLS
++				if (preserve_acls && !S_ISLNK(file->mode)) {
++					get_acl_fdat(bfd, -1, NULL, rel, &sx);
++					cache_tmp_acl(file, &sx);
++					free_acl(&sx);
++				}
++# endif
++# ifdef SUPPORT_XATTRS
++				if (preserve_xattrs) {
++					get_xattr(rel, bfd, &sx);
++					cache_tmp_xattr(file, &sx);
++					free_xattr(&sx);
++				}
++# endif
+ 			}
+-#endif
+-#ifdef SUPPORT_XATTRS
+-			if (preserve_xattrs) {
+-				get_xattr(rel, &sx);
+-				cache_tmp_xattr(file, &sx);
+-				free_xattr(&sx);
++			if (bfd >= 0)
++				close(bfd);
+ 			}
+ #endif
+ 			set_file_attrs(backup_dir_buf, file, NULL, NULL, 0);
+@@ -260,18 +295,27 @@ static int make_backup_inner(const char *fname, BOOL prefer_rename)
+ 	if (!(file = make_file(fname, NULL, &sx.st, 0, NO_FILTERS)))
+ 		return 3; /* the file could have disappeared */
+ 
+-#ifdef SUPPORT_ACLS
+-	if (preserve_acls && !S_ISLNK(file->mode)) {
+-		get_acl(fname, &sx);
+-		cache_tmp_acl(file, &sx);
+-		free_acl(&sx);
++#if defined SUPPORT_ACLS || defined SUPPORT_XATTRS
++	{	/* read the source file's ACL/xattr through a confined fd */
++	int bfd = backup_source_fd(fname);
++	if (!backup_metadata_hardened() || bfd >= 0) {
++# ifdef SUPPORT_ACLS
++		if (preserve_acls && !S_ISLNK(file->mode)) {
++			get_acl_fdat(bfd, -1, NULL, fname, &sx);
++			cache_tmp_acl(file, &sx);
++			free_acl(&sx);
++		}
++# endif
++# ifdef SUPPORT_XATTRS
++		if (preserve_xattrs) {
++			get_xattr(fname, bfd, &sx);
++			cache_tmp_xattr(file, &sx);
++			free_xattr(&sx);
++		}
++# endif
+ 	}
+-#endif
+-#ifdef SUPPORT_XATTRS
+-	if (preserve_xattrs) {
+-		get_xattr(fname, &sx);
+-		cache_tmp_xattr(file, &sx);
+-		free_xattr(&sx);
++	if (bfd >= 0)
++		close(bfd);
+ 	}
+ #endif
+ 
+diff --git a/flist.c b/flist.c
+index c9868fbd..37e17850 100644
+--- a/flist.c
++++ b/flist.c
+@@ -1821,7 +1821,7 @@ static struct file_struct *send_file_name(int f, struct file_list *flist,
+ #ifdef SUPPORT_XATTRS
+ 		if (preserve_xattrs) {
+ 			sx.st.st_mode = file->mode;
+-			if (get_xattr(fname, &sx) < 0) {
++			if (get_xattr(fname, -1, &sx) < 0) {
+ 				io_error |= IOERR_GENERAL;
+ #ifdef SUPPORT_ACLS
+ 				free_acl(&sx); /* get_acl() above may have loaded one */
+diff --git a/generator.c b/generator.c
+index 358b1cfe..9fd4ba56 100644
+--- a/generator.c
++++ b/generator.c
+@@ -461,7 +461,7 @@ static inline int xattrs_differ(const char *fname, struct file_struct *file, sta
+ {
+ 	if (preserve_xattrs) {
+ 		if (!XATTR_READY(*sxp))
+-			get_xattr(fname, sxp);
++			get_xattr(fname, -1, sxp);
+ 		if (xattr_diff(file, sxp, 0))
+ 			return 1;
+ 	}
+@@ -570,7 +570,7 @@ void itemize(const char *fnamecmp, struct file_struct *file, int ndx, int statre
+ #ifdef SUPPORT_XATTRS
+ 		if (preserve_xattrs) {
+ 			if (!XATTR_READY(*sxp))
+-				get_xattr(fnamecmp, sxp);
++				get_xattr(fnamecmp, -1, sxp);
+ 			if (xattr_diff(file, sxp, 1))
+ 				iflags |= ITEM_REPORT_XATTR;
+ 		}
+@@ -1402,7 +1402,7 @@ static int gen_entry_chmod(const char *fname, struct file_struct *file, mode_t m
+ static int gen_entry_copy_xattrs(const char *src, const char *fname, struct file_struct *file)
+ {
+ 	int dfd = held_dfd_for(fname, file);
+-	int xfd = -1, ret;
++	int xfd = -1, sfd = -1, ret;
+ 	if (dfd >= 0) {
+ 		const char *slash = strrchr(fname, '/');
+ 		xfd = openat(dfd, slash ? slash + 1 : fname,
+@@ -1419,7 +1419,44 @@ static int gen_entry_copy_xattrs(const char *src, const char *fname, struct file
+ 			return -1;
+ 		}
+ 	}
+-	ret = copy_xattrs(src, fname, xfd);
++	/* Pin the SOURCE (alt-dest basis) leaf too so the xattr READ can't be raced
++	 * out of tree (copy_file does the same for its content+xattr source).  A
++	 * relative basis goes through the RESOLVE_BENEATH resolver; an absolute one
++	 * through the operator ownership walk.  Refuse (don't path-read) when we are
++	 * meant to confine but can't pin; a non-hardened receiver path-reads (sfd<0). */
++#if defined AT_FDCWD && defined O_NOFOLLOW
++	if (secure_relpath_active() && src && *src && !symlink_optout_allowed()) {
++		int odir = 0;
++#ifdef O_DIRECTORY
++		if (S_ISDIR(file->mode))	/* secure_relative_open rejects a dir leaf without this */
++			odir = O_DIRECTORY;
++#endif
++		if (src[0] != '/')
++			sfd = secure_relative_open(NULL, src, O_RDONLY | O_NOFOLLOW | odir, 0);
++		else {
++			int save = operator_path_resolve, sdfd, e;
++			const char *leaf;
++			operator_path_resolve = 1;
++			sdfd = owner_walk_parent(src, &leaf);
++			operator_path_resolve = save;
++			if (sdfd >= 0) {
++				sfd = openat(sdfd, leaf, O_RDONLY | O_NOFOLLOW | odir | O_NONBLOCK | O_NOCTTY | O_CLOEXEC);
++				e = errno; close(sdfd); errno = e;
++			}
++		}
++		if (sfd < 0) {
++			rsyserr(FERROR_XFER, errno,
++				"gen_entry_copy_xattrs: secure open of basis %s failed",
++				full_fname(src));
++			if (xfd >= 0)
++				close(xfd);
++			return -1;
++		}
++	}
++#endif
++	ret = copy_xattrs(src, sfd, fname, xfd);
++	if (sfd >= 0)
++		close(sfd);
+ 	if (xfd >= 0)
+ 		close(xfd);
+ 	return ret;
+@@ -2225,7 +2262,14 @@ static void recv_generator(char *fname, struct file_struct *file, int ndx,
+ 		 * copied the xattrs through its own held fd -- don't repeat it
+ 		 * with a path-based set a parent-symlink race could redirect. */
+ 		if (preserve_xattrs && f_copy >= 0) {
+-			copy_xattrs(fname, backupptr, f_copy);
++			/* Read fname's xattrs through a confined fd so the copy onto the
++			 * held backup fd can't be fed an out-of-module source by a raced
++			 * parent symlink; a hardened race skips rather than path-reads. */
++			int bfd = backup_source_fd(fname);
++			if (!backup_metadata_hardened() || bfd >= 0)
++				copy_xattrs(fname, bfd, backupptr, f_copy);
++			if (bfd >= 0)
++				close(bfd);
+ 			preserve_xattrs = 0;
+ 		}
+ #endif
+diff --git a/hlink.c b/hlink.c
+index dc95c42e..2e84b49f 100644
+--- a/hlink.c
++++ b/hlink.c
+@@ -451,7 +451,7 @@ int hard_link_check(struct file_struct *file, int ndx, char *fname,
+ 			if (preserve_xattrs) {
+ 				free_xattr(sxp);
+ 				if (!XATTR_READY(alt_sx))
+-					get_xattr(cmpbuf, sxp);
++					get_xattr(cmpbuf, -1, sxp);
+ 				else {
+ 					sxp->xattr = alt_sx.xattr;
+ 					alt_sx.xattr = NULL;
+diff --git a/t_stub.c b/t_stub.c
+index 3744a1f5..9f0d734c 100644
+--- a/t_stub.c
++++ b/t_stub.c
+@@ -81,7 +81,7 @@ filter_rule_list daemon_filter_list;
+ 	return 0;
+ }
+ 
+- int copy_xattrs(UNUSED(const char *source), UNUSED(const char *dest), UNUSED(int dest_fd))
++ int copy_xattrs(UNUSED(const char *source), UNUSED(int source_fd), UNUSED(const char *dest), UNUSED(int dest_fd))
+ {
+ 	return -1;
+ }
+diff --git a/util1.c b/util1.c
+index 5659857f..230f7ded 100644
+--- a/util1.c
++++ b/util1.c
+@@ -483,11 +483,6 @@ int copy_file(const char *source, const char *dest, int tmpfilefd, mode_t mode)
+ 		return -1;
+ 	}
+ 
+-	if (close(ifd) < 0) {
+-		rsyserr(FWARNING, errno, "close failed on %s",
+-			full_fname(source));
+-	}
+-
+ 	/* Source file might have shrunk since we fstatted it.
+ 	 * Cut off any extra preallocated zeros from dest file. */
+ 	if (offset < prealloc_len) {
+@@ -505,17 +500,24 @@ int copy_file(const char *source, const char *dest, int tmpfilefd, mode_t mode)
+ 		int save_errno = errno;
+ 		rsyserr(FERROR, errno, "fsync failed on %s", full_fname(dest));
+ 		close(ofd);
++		close(ifd);	/* ifd is held open until after the xattr copy below */
+ 		errno = save_errno;
+ 		return -1;
+ 	}
+ 
+ #ifdef SUPPORT_XATTRS
+-	/* Set xattrs through ofd while it's still held so a parent-symlink race
+-	 * can't redirect them onto a file outside the tree. */
++	/* Read the source xattrs through the held source fd (ifd) and set them
++	 * through ofd while both are still held, so a parent-symlink race can't
++	 * redirect the read out of tree or the write onto a file outside it. */
+ 	if (preserve_xattrs)
+-		copy_xattrs(source, dest, ofd);
++		copy_xattrs(source, ifd, dest, ofd);
+ #endif
+ 
++	if (close(ifd) < 0) {
++		rsyserr(FWARNING, errno, "close failed on %s",
++			full_fname(source));
++	}
++
+ 	if (close(ofd) < 0) {
+ 		int save_errno = errno;
+ 		rsyserr(FERROR_XFER, errno, "close failed on %s", full_fname(dest));
+diff --git a/xattrs.c b/xattrs.c
+index c205189e..7ef63684 100644
+--- a/xattrs.c
++++ b/xattrs.c
+@@ -191,9 +191,13 @@ static ssize_t get_xattr_names(const char *fname, int fd)
+ /* On entry, the *len_ptr parameter contains the size of the extra space we
+  * should allocate when we create a buffer for the data.  On exit, it contains
+  * the length of the datum. */
+-static char *get_xattr_data(const char *fname, const char *name, size_t *len_ptr, int no_missing_error)
++/* Read xattr `name`'s value.  When fd >= 0 the read goes through that held fd
++ * (sys_fgetxattr) so a parent-symlink race can't redirect it; otherwise it falls
++ * back to the path (sys_lgetxattr), matching get_xattr_names(). */
++static char *get_xattr_data(const char *fname, int fd, const char *name, size_t *len_ptr, int no_missing_error)
+ {
+-	size_t datum_len = sys_lgetxattr(fname, name, NULL, 0);
++	size_t datum_len = fd >= 0 ? sys_fgetxattr(fd, name, NULL, 0)
++				   : sys_lgetxattr(fname, name, NULL, 0);
+ 	size_t extra_len = *len_ptr;
+ 	char *ptr;
+ 
+@@ -215,7 +219,8 @@ static char *get_xattr_data(const char *fname, const char *name, size_t *len_ptr
+ 	ptr = new_array(char, datum_len + extra_len);
+ 
+ 	if (datum_len) {
+-		size_t len = sys_lgetxattr(fname, name, ptr, datum_len);
++		size_t len = fd >= 0 ? sys_fgetxattr(fd, name, ptr, datum_len)
++				     : sys_lgetxattr(fname, name, ptr, datum_len);
+ 		if (len != datum_len) {
+ 			if (len == (size_t)-1) {
+ 				rsyserr(FERROR_XFER, errno,
+@@ -235,7 +240,7 @@ static char *get_xattr_data(const char *fname, const char *name, size_t *len_ptr
+ 	return ptr;
+ }
+ 
+-static int rsync_xal_get(const char *fname, item_list *xalp)
++static int rsync_xal_get(const char *fname, int fd, item_list *xalp)
+ {
+ 	ssize_t list_len, name_len;
+ 	size_t datum_len, name_offset;
+@@ -247,7 +252,7 @@ static int rsync_xal_get(const char *fname, item_list *xalp)
+ 	int count;
+ 
+ 	/* This puts the name list into the "namebuf" buffer. */
+-	if ((list_len = get_xattr_names(fname, -1)) < 0)
++	if ((list_len = get_xattr_names(fname, fd)) < 0)
+ 		return -1;
+ 
+ 	for (name = namebuf; list_len > 0; name += name_len) {
+@@ -275,7 +280,7 @@ static int rsync_xal_get(const char *fname, item_list *xalp)
+ 		}
+ 
+ 		datum_len = name_len; /* Pass extra size to get_xattr_data() */
+-		if (!(ptr = get_xattr_data(fname, name, &datum_len, 0)))
++		if (!(ptr = get_xattr_data(fname, fd, name, &datum_len, 0)))
+ 			return -1;
+ 
+ 		if (datum_len > MAX_FULL_DATUM) {
+@@ -308,7 +313,9 @@ static int rsync_xal_get(const char *fname, item_list *xalp)
+ }
+ 
+ /* Read the xattr(s) for this filename. */
+-int get_xattr(const char *fname, stat_x *sxp)
++/* Collect fname's xattrs into sxp.  fd >= 0 reads them through that held fd
++ * (race-safe); fd < 0 uses the path. */
++int get_xattr(const char *fname, int fd, stat_x *sxp)
+ {
+ 	sxp->xattr = new(item_list);
+ 	*sxp->xattr = empty_xattr;
+@@ -333,18 +340,18 @@ int get_xattr(const char *fname, stat_x *sxp)
+ 	} else if (IS_MISSING_FILE(sxp->st))
+ 		return 0;
+ 
+-	if (rsync_xal_get(fname, sxp->xattr) < 0) {
++	if (rsync_xal_get(fname, fd, sxp->xattr) < 0) {
+ 		free_xattr(sxp);
+ 		return -1;
+ 	}
+ 	return 0;
+ }
+ 
+-/* Copy xattrs from source to dest.  When dest_fd >= 0 it is a held,
+- * O_NOFOLLOW-opened fd for dest and the set goes through fsetxattr so a
+- * parent-symlink race can't redirect it; dest_fd < 0 keeps the path-based
+- * lsetxattr behaviour (non-hardened receivers, or no held fd available). */
+-int copy_xattrs(const char *source, const char *dest, int dest_fd)
++/* Copy xattrs from source to dest.  source_fd/dest_fd, when >= 0, are held
++ * O_NOFOLLOW-opened fds so the source read (fgetxattr) and the dest set
++ * (fsetxattr) can't be redirected by a parent-symlink race; a < 0 fd keeps the
++ * path-based l-variant (non-hardened receivers, or no held fd available). */
++int copy_xattrs(const char *source, int source_fd, const char *dest, int dest_fd)
+ {
+ 	ssize_t list_len, name_len;
+ 	size_t datum_len;
+@@ -354,7 +361,7 @@ int copy_xattrs(const char *source, const char *dest, int dest_fd)
+ #endif
+ 
+ 	/* This puts the name list into the "namebuf" buffer. */
+-	if ((list_len = get_xattr_names(source, -1)) < 0)
++	if ((list_len = get_xattr_names(source, source_fd)) < 0)
+ 		return -1;
+ 
+ 	for (name = namebuf; list_len > 0; name += name_len) {
+@@ -372,7 +379,7 @@ int copy_xattrs(const char *source, const char *dest, int dest_fd)
+ #endif
+ 
+ 		datum_len = 0;
+-		if (!(ptr = get_xattr_data(source, name, &datum_len, 0)))
++		if (!(ptr = get_xattr_data(source, source_fd, name, &datum_len, 0)))
+ 			return -1;
+ 		if ((dest_fd >= 0 ? sys_fsetxattr(dest_fd, name, ptr, datum_len)
+ 				  : sys_lsetxattr(dest, name, ptr, datum_len)) < 0) {
+@@ -671,7 +678,7 @@ void send_xattr_request(const char *fname, struct file_struct *file, int f_out)
+ 			char *ptr;
+ 
+ 			/* Re-read the long datum. */
+-			if (!(ptr = get_xattr_data(fname, rxa->name, &len, 0))) {
++			if (!(ptr = get_xattr_data(fname, -1, rxa->name, &len, 0))) {
+ 				rprintf(FERROR_XFER, "failed to re-read xattr %s for %s\n", rxa->name, fname);
+ 				write_varint(f_out, 0);
+ 				continue;
+@@ -999,7 +1006,7 @@ static int rsync_xal_set(const char *fname, item_list *xalp,
+ 		if (XATTR_ABBREV(rxas[i])) {
+ 			/* See if the fnamecmp version is identical. */
+ 			len = name_len = rxas[i].name_len;
+-			if ((ptr = get_xattr_data(fnamecmp, name, &len, 1)) == NULL) {
++			if ((ptr = get_xattr_data(fnamecmp, -1, name, &len, 1)) == NULL) {
+ 			  still_abbrev:
+ 				if (am_generator)
+ 					continue;
+@@ -1168,11 +1175,11 @@ int set_xattr(const char *fname, const struct file_struct *file, const char *fna
+ }
+ 
+ #ifdef SUPPORT_ACLS
+-char *get_xattr_acl(const char *fname, int is_access_acl, size_t *len_p)
++char *get_xattr_acl(const char *fname, int fd, int is_access_acl, size_t *len_p)
+ {
+ 	const char *name = is_access_acl ? XACC_ACL_ATTR : XDEF_ACL_ATTR;
+ 	*len_p = 0; /* no extra data alloc needed from get_xattr_data() */
+-	return get_xattr_data(fname, name, len_p, 1);
++	return get_xattr_data(fname, fd, name, len_p, 1);
+ }
+ 
+ /* Store/delete a --fake-super ACL-as-xattr.  When fd >= 0 (a held O_NOFOLLOW fd

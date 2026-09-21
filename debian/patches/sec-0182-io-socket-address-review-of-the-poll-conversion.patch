@@ -1,0 +1,301 @@
+From 85d8287c0717cf93c77d6670e878abb3b7e6f0f0 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:14 +0800
+Subject: [PATCH 182/200] 4cfdb228
+
+---
+ configure.ac |  8 ++++-
+ io.c         | 86 +++++++++++++++++++++++++++++++++++++++++-----------
+ socket.c     | 35 ++++++++++-----------
+ 3 files changed, 94 insertions(+), 35 deletions(-)
+
+diff --git a/configure.ac b/configure.ac
+index f3eecda1..30301125 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -5,7 +5,7 @@ AC_INIT([rsync],[ ],[https://rsync.samba.org/bug-tracking.html])
+ AC_C_BIGENDIAN
+ AC_HEADER_DIRENT
+ AC_HEADER_SYS_WAIT
+-AC_CHECK_HEADERS(sys/fcntl.h sys/select.h fcntl.h sys/time.h sys/unistd.h \
++AC_CHECK_HEADERS(poll.h sys/fcntl.h sys/select.h fcntl.h sys/time.h sys/unistd.h \
+     unistd.h utime.h compat.h sys/param.h ctype.h sys/wait.h sys/stat.h \
+     sys/ioctl.h sys/filio.h string.h stdlib.h sys/socket.h sys/mode.h grp.h \
+     sys/un.h sys/attr.h arpa/inet.h arpa/nameser.h locale.h sys/types.h \
+@@ -891,6 +891,12 @@ AC_HAVE_TYPE([struct stat64], [#include <stdio.h>
+ 
+ # if we can't find strcasecmp, look in -lresolv (for Unixware at least)
+ #
++dnl rsync's I/O readiness loops use poll() rather than select() so that a
++dnl file descriptor at or above FD_SETSIZE cannot overflow an fd_set (which
++dnl is undefined behaviour and could hang the transfer).  poll() is in
++dnl POSIX.1-2001; fail early and clearly if this target lacks it.
++AC_CHECK_FUNCS([poll], , [AC_MSG_ERROR([rsync requires poll(); please report the platform to the rsync developers])])
++
+ AC_CHECK_FUNCS(strcasecmp)
+ if test x"$ac_cv_func_strcasecmp" = x"no"; then
+     AC_CHECK_LIB(resolv, strcasecmp)
+diff --git a/io.c b/io.c
+index 5d0f0a4f..a26922bc 100644
+--- a/io.c
++++ b/io.c
+@@ -33,6 +33,12 @@
+ 
+ #include <poll.h>
+ 
++/* Readiness bits we act on.  poll() can report POLLERR/POLLHUP/POLLNVAL even
++ * when they were not requested, and POLLPRI stands in for select()'s old
++ * exception set. */
++#define POLL_RD_BITS (POLLIN | POLLPRI | POLLERR | POLLHUP)
++#define POLL_WR_BITS (POLLOUT | POLLERR | POLLHUP)
++
+ /** If no timeout is specified then use a 60 second I/O timeout */
+ #define SELECT_TIMEOUT 60
+ 
+@@ -117,6 +123,19 @@ static xbuf ff_xb = EMPTY_XBUF;
+ static xbuf iconv_buf = EMPTY_XBUF;
+ #endif
+ static int select_timeout = SELECT_TIMEOUT;
++
++/* Turn select_timeout (in seconds) into a poll() millisecond count, keeping it
++ * positive and bounded.  A negative count means "wait forever" to poll(), which
++ * would bypass our keepalives and timeout enforcement entirely. */
++static int poll_timeout_ms(void)
++{
++	int secs = select_timeout;
++
++	if (secs <= 0 || secs > SELECT_TIMEOUT)
++		secs = SELECT_TIMEOUT;
++	return secs * 1000;
++}
++
+ static int active_filecnt = 0;
+ static OFF_T active_bytecnt = 0;
+ static int first_message = 1;
+@@ -262,12 +281,12 @@ static size_t safe_read(int fd, char *buf, size_t len)
+ 		/* We use poll() rather than select() so that a high-numbered fd
+ 		 * (>= FD_SETSIZE) cannot overflow an fd_set bitmap. */
+ 		pfd.fd = fd;
+-		pfd.events = POLLIN;
++		pfd.events = POLLIN | POLLPRI;
+ 		pfd.revents = 0;
+ 
+-		cnt = poll(&pfd, 1, select_timeout * 1000);
++		cnt = poll(&pfd, 1, poll_timeout_ms());
+ 		if (cnt <= 0) {
+-			if (cnt < 0 && errno == EBADF) {
++			if (cnt < 0 && errno != EINTR && errno != EAGAIN) {
+ 				rsyserr(FERROR, errno, "safe_read poll failed");
+ 				exit_cleanup(RERR_FILEIO);
+ 			}
+@@ -275,7 +294,13 @@ static size_t safe_read(int fd, char *buf, size_t len)
+ 			continue;
+ 		}
+ 
+-		if (pfd.revents) {
++		/* An invalid fd is reported here rather than via poll()'s return. */
++		if (pfd.revents & POLLNVAL) {
++			rsyserr(FERROR, EBADF, "safe_read poll failed");
++			exit_cleanup(RERR_FILEIO);
++		}
++
++		if (pfd.revents & POLL_RD_BITS) {
+ 			ssize_t n = read(fd, buf + got, len - got);
+ 			if (DEBUG_GTE(IO, 2)) {
+ 				rprintf(FINFO, "[%s] safe_read(%d)=%" SIZE_T_FMT_MOD "d\n",
+@@ -354,9 +379,9 @@ static void safe_write(int fd, const char *buf, size_t len)
+ 		pfd.events = POLLOUT;
+ 		pfd.revents = 0;
+ 
+-		cnt = poll(&pfd, 1, select_timeout * 1000);
++		cnt = poll(&pfd, 1, poll_timeout_ms());
+ 		if (cnt <= 0) {
+-			if (cnt < 0 && errno == EBADF) {
++			if (cnt < 0 && errno != EINTR && errno != EAGAIN) {
+ 				rsyserr(FERROR, errno, "safe_write poll failed on %s", what_fd_is(fd));
+ 				exit_cleanup(RERR_FILEIO);
+ 			}
+@@ -365,7 +390,12 @@ static void safe_write(int fd, const char *buf, size_t len)
+ 			continue;
+ 		}
+ 
+-		if (pfd.revents) {
++		if (pfd.revents & POLLNVAL) {
++			rsyserr(FERROR, EBADF, "safe_write poll failed on %s", what_fd_is(fd));
++			exit_cleanup(RERR_FILEIO);
++		}
++
++		if (pfd.revents & POLL_WR_BITS) {
+ 			n = write(fd, buf, len);
+ 			if (n < 0) {
+ 				if (errno == EINTR)
+@@ -674,7 +704,7 @@ static char *perform_io(size_t needed, int flags)
+ 		if (iobuf.in_fd >= 0 && iobuf.in.size - iobuf.in.len) {
+ 			if (!read_batch || batch_fd >= 0) {
+ 				pfds[npfds].fd = iobuf.in_fd;
+-				pfds[npfds].events = POLLIN;
++				pfds[npfds].events = POLLIN | POLLPRI;
+ 				pfds[npfds].revents = 0;
+ 				in_pollpos = npfds++;
+ 			}
+@@ -731,10 +761,18 @@ static char *perform_io(size_t needed, int flags)
+ 			} else
+ 				out = NULL;
+ 			if (out) {
+-				pfds[npfds].fd = iobuf.out_fd;
+-				pfds[npfds].events = POLLOUT;
+-				pfds[npfds].revents = 0;
+-				out_pollpos = npfds++;
++				/* A direct daemon connection uses one fd for both
++				 * directions; give it a single row with both events
++				 * rather than two rows carrying different masks. */
++				if (in_pollpos >= 0 && iobuf.out_fd == iobuf.in_fd) {
++					pfds[in_pollpos].events |= POLLOUT;
++					out_pollpos = in_pollpos;
++				} else {
++					pfds[npfds].fd = iobuf.out_fd;
++					pfds[npfds].events = POLLOUT;
++					pfds[npfds].revents = 0;
++					out_pollpos = npfds++;
++				}
+ 				if (iobuf.out_fd > max_fd)
+ 					max_fd = iobuf.out_fd;
+ 			}
+@@ -776,10 +814,10 @@ static char *perform_io(size_t needed, int flags)
+ 				poll_timeout = 0;
+ 			else {
+ 				extra_flist_sending_enabled = False;
+-				poll_timeout = select_timeout * 1000;
++				poll_timeout = poll_timeout_ms();
+ 			}
+ 		} else
+-			poll_timeout = select_timeout * 1000;
++			poll_timeout = poll_timeout_ms();
+ 
+ 		cnt = poll(pfds, npfds, poll_timeout);
+ 
+@@ -803,7 +841,20 @@ static char *perform_io(size_t needed, int flags)
+ 				pfds[out_pollpos].revents = 0;
+ 		}
+ 
+-		if (iobuf.in_fd >= 0 && in_pollpos >= 0 && pfds[in_pollpos].revents) {
++		if (cnt > 0) {
++			/* poll() reports a bad fd here, not via its return value. */
++			int p;
++			for (p = 0; p < npfds; p++) {
++				if (pfds[p].revents & POLLNVAL) {
++					msgs2stderr = 1;
++					rsyserr(FERROR, EBADF, "perform_io: poll reported an invalid fd");
++					exit_cleanup(RERR_SOCKETIO);
++				}
++			}
++		}
++
++		if (iobuf.in_fd >= 0 && in_pollpos >= 0
++		 && pfds[in_pollpos].revents & POLL_RD_BITS) {
+ 			size_t len, pos = iobuf.in.pos + iobuf.in.len;
+ 			ssize_t n;
+ 			if (pos >= iobuf.in.size) {
+@@ -852,7 +903,7 @@ static char *perform_io(size_t needed, int flags)
+ 			exit_cleanup(RERR_TIMEOUT);
+ 		}
+ 
+-		if (out && out_pollpos >= 0 && pfds[out_pollpos].revents) {
++		if (out && out_pollpos >= 0 && pfds[out_pollpos].revents & POLL_WR_BITS) {
+ 			size_t len = iobuf.raw_flushing_ends_before ? iobuf.raw_flushing_ends_before - out->pos : out->len;
+ 			ssize_t n;
+ 
+@@ -915,7 +966,8 @@ static char *perform_io(size_t needed, int flags)
+ 				wait_for_receiver(); /* generator only */
+ 		}
+ 
+-		if (ff_forward_fd >= 0 && ff_pollpos >= 0 && pfds[ff_pollpos].revents) {
++		if (ff_forward_fd >= 0 && ff_pollpos >= 0
++		 && pfds[ff_pollpos].revents & POLL_RD_BITS) {
+ 			/* This can potentially flush all output and enable
+ 			 * multiplexed output, so keep this last in the loop
+ 			 * and be sure to not cache anything that would break
+diff --git a/socket.c b/socket.c
+index 4325440e..b79f1cc3 100644
+--- a/socket.c
++++ b/socket.c
+@@ -25,6 +25,7 @@
+  * emulate it using the KAME implementation. */
+ 
+ #include "rsync.h"
++#include <poll.h>
+ #include "itypes.h"
+ #include "ifuncs.h"
+ #ifdef HAVE_NETINET_IN_SYSTM_H
+@@ -625,8 +626,8 @@ static void sigchld_handler(UNUSED(int val))
+ 
+ void start_accept_loop(int port, int (*fn)(int, int))
+ {
+-	fd_set deffds;
+-	int *sp, maxfd, i;
++	struct pollfd *pfds;
++	int *sp, nsp, i;
+ 
+ #ifdef HAVE_SIGACTION
+ 	sigact.sa_flags = SA_NOCLDSTOP;
+@@ -638,8 +639,12 @@ void start_accept_loop(int port, int (*fn)(int, int))
+ 		exit_cleanup(RERR_SOCKETIO);
+ 
+ 	/* ready to listen */
+-	FD_ZERO(&deffds);
+-	for (i = 0, maxfd = -1; sp[i] >= 0; i++) {
++	for (nsp = 0; sp[nsp] >= 0; nsp++) {}
++	/* poll() rather than select(): a listening fd at or above FD_SETSIZE
++	 * would overflow an fd_set, which is undefined behaviour (issue #231). */
++	if (!(pfds = new_array(struct pollfd, nsp ? nsp : 1)))
++		out_of_memory("start_accept_loop");
++	for (i = 0; sp[i] >= 0; i++) {
+ 		if (listen(sp[i], lp_listen_backlog()) < 0) {
+ 			rsyserr(FERROR, errno, "listen() on socket failed");
+ #ifdef INET6
+@@ -649,36 +654,32 @@ void start_accept_loop(int port, int (*fn)(int, int))
+ #endif
+ 			exit_cleanup(RERR_SOCKETIO);
+ 		}
+-		FD_SET(sp[i], &deffds);
+-		if (maxfd < sp[i])
+-			maxfd = sp[i];
++		pfds[i].fd = sp[i];
++		pfds[i].events = POLLIN;
++		pfds[i].revents = 0;
+ 	}
+ 
+ 	/* now accept incoming connections - forking a new process
+ 	 * for each incoming connection */
+ 	while (1) {
+-		fd_set fds;
+ 		pid_t pid;
+ 		int fd;
+ 		struct sockaddr_storage addr;
+ 		socklen_t addrlen = sizeof addr;
+ 
+-		/* close log file before the potentially very long select so
++		/* close log file before the potentially very long wait so the
+ 		 * file can be trimmed by another process instead of growing
+ 		 * forever */
+ 		logfile_close();
+ 
+-#ifdef FD_COPY
+-		FD_COPY(&deffds, &fds);
+-#else
+-		fds = deffds;
+-#endif
++		for (i = 0; i < nsp; i++)
++			pfds[i].revents = 0;
+ 
+-		if (select(maxfd + 1, &fds, NULL, NULL, NULL) < 1)
++		if (poll(pfds, nsp, -1) < 1)
+ 			continue;
+ 
+-		for (i = 0, fd = -1; sp[i] >= 0; i++) {
+-			if (FD_ISSET(sp[i], &fds)) {
++		for (i = 0, fd = -1; i < nsp; i++) {
++			if (pfds[i].revents & (POLLIN | POLLERR | POLLHUP)) {
+ 				fd = accept(sp[i], (struct sockaddr *)&addr, &addrlen);
+ 				break;
+ 			}

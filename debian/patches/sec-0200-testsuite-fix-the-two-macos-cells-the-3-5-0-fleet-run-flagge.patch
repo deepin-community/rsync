@@ -1,0 +1,62 @@
+From 757a46dcfac159e008707ee8e84a8e38360f5fbd Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:15 +0800
+Subject: [PATCH 200/200] c549abd0
+
+---
+ t_symlink_secure.c              | 16 ++++++++++++++++
+ testsuite/skiplist/backport.txt |  2 ++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/t_symlink_secure.c b/t_symlink_secure.c
+index 41cb3a02..64eae888 100644
+--- a/t_symlink_secure.c
++++ b/t_symlink_secure.c
+@@ -88,6 +88,16 @@ int main(int argc, char **argv)
+ 	int poc = 0;
+ 	const char *moddir;
+ 
++# if !defined(HAVE_MKNODAT) && !defined(TEST_SYMLINK_PLACEHOLDER)
++	/* Nothing left to assert: the do_mknod_at() checks need mknodat(), and
++	 * the do_symlink_at() ones are not compiled here.  Skip rather than
++	 * pass vacuously. */
++	(void)argc; (void)argv;
++	fprintf(stderr, "SKIP: no mknodat() and no symlink placeholders -- "
++		"nothing this helper asserts applies to this build\n");
++	return 77;
++# endif
++
+ 	if (argc == 3 && strcmp(argv[1], "--poc") == 0) {
+ 		poc = 1;
+ 		moddir = argv[2];
+@@ -131,11 +141,17 @@ int main(int argc, char **argv)
+ 	check_preserved("do_symlink_at slashed", "../outside/secret_sym2", "VICTIM_SYM2");
+ #endif
+ 
++# ifdef HAVE_MKNODAT
++	/* Without mknodat() do_mknod_at() IS do_mknod(): the confinement is
++	 * compiled out by design (SECURITY.md), so these would assert a
++	 * property the build deliberately does not have.  The do_symlink_at()
++	 * checks above do not depend on it and still run. */
+ 	do_mknod_at("nodpath", S_IFCHR | 0600, 0);
+ 	check_preserved("do_mknod_at bare", "../outside/secret_nod", "VICTIM_NOD");
+ 
+ 	do_mknod_at("sub/nodpath2", S_IFCHR | 0600, 0);
+ 	check_preserved("do_mknod_at slashed", "../outside/secret_nod2", "VICTIM_NOD2");
++# endif
+ 
+ 	if (errs)
+ 		fprintf(stderr, "%d failure(s)\n", errs);
+diff --git a/testsuite/skiplist/backport.txt b/testsuite/skiplist/backport.txt
+index 82aad696..b8f1d58a 100644
+--- a/testsuite/skiplist/backport.txt
++++ b/testsuite/skiplist/backport.txt
+@@ -23,6 +23,8 @@ chmod-option                            # --chmod permission copy modes (3.5.0)
+ preallocate                             # --preallocate --sparse hole punching (3.5.0)
+ daemon-refuse-compress-threads-alias    # --compress-threads arrived in 3.4.2
+ daemon-zstd-thread-exhaustion           # --compress-threads arrived in 3.4.2
++partial_nowrite                         # receiver chmod-on-denied-open (3.5.0)
++partial-protected-regular-retry-policy  # EACCES recovery path (3.5.0, macOS-only test)
+ 
+ # The suite's per-platform skip lists describe the tests IT ships, so they do
+ # not describe a build of this branch.

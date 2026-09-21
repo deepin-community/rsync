@@ -1,0 +1,27 @@
+From 1689e1261287b789c85c9e7771c687eb91a5fd04 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:12 +0800
+Subject: [PATCH 148/200] d463466c
+
+---
+ authenticate.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/authenticate.c b/authenticate.c
+index ff07a2d2..dda4d2a6 100644
+--- a/authenticate.c
++++ b/authenticate.c
+@@ -22,6 +22,13 @@
+ #include "itypes.h"
+ #include "ifuncs.h"
+ 
++/* O_CLOEXEC is absent on some still-supported targets.  The random-source fd
++ * is read and closed synchronously, so the established zero-value fallback is
++ * sufficient without adding a configure dependency. */
++#ifndef O_CLOEXEC
++#define O_CLOEXEC 0
++#endif
++
+ extern int read_only;
+ extern char *password_file;
+ extern struct name_num_obj valid_auth_checksums;

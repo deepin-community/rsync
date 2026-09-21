@@ -1,0 +1,304 @@
+From 3861936660a48d6aa7c1ccf83ff8a3123ada5eee Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 108/200] cf4cffcc
+
+---
+ configure.ac |  2 +-
+ receiver.c   | 19 +++++++---
+ rsync.c      | 38 +++++++++++++++-----
+ syscall.c    | 99 ++++++++++++++++++++++++++++++++++++++++++++++------
+ 4 files changed, 132 insertions(+), 26 deletions(-)
+
+diff --git a/configure.ac b/configure.ac
+index c7c89852..f3eecda1 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -917,7 +917,7 @@ AC_CHECK_FUNCS(waitpid wait4 getcwd chown chmod lchmod mknod mkfifo fdopendir \
+     setlocale setmode open64 lseek64 mkstemp64 mtrace va_copy __va_copy \
+     seteuid strerror putenv iconv_open locale_charset nl_langinfo getxattr \
+     extattr_get_link sigaction sigprocmask setattrlist getgrouplist \
+-    initgroups utimensat posix_fallocate attropen setvbuf nanosleep usleep \
++    initgroups utimensat futimens posix_fallocate attropen setvbuf nanosleep usleep \
+     setenv unsetenv)
+ 
+ dnl dirfd() is a macro or static inline on several systems (the BSDs), so the
+diff --git a/receiver.c b/receiver.c
+index 7cd6d714..51b6583a 100644
+--- a/receiver.c
++++ b/receiver.c
+@@ -25,6 +25,7 @@
+ extern int dry_run;
+ extern int do_xfers;
+ extern int am_root;
++extern int am_daemon;
+ extern int am_server;
+ extern int inc_recurse;
+ extern int log_before_transfer;
+@@ -960,11 +961,16 @@ int recv_files(int f_in, int f_out, char *local_name)
+ 				const char *slash = strrchr(fnamecmp, '/');
+ 				fd1 = do_open_atfd(bdfd, slash ? slash + 1 : fnamecmp, O_RDONLY, 0);
+ 			} else {
+-				/* A --partial-dir basis is an operator/peer path: resolve it with
+-				 * the exclude-aware ownership walk so a symlinked partial-dir
+-				 * can't read (and feed back as delta) a file in an excluded
+-				 * subtree. */
+-				if (fnamecmp_type == FNAMECMP_PARTIAL_DIR)
++				/* An operator-supplied basis -- a --partial-dir, or an
++				 * alt-dest basedir (--copy-dest/--compare-dest/--link-dest) --
++				 * is a peer/operator path: resolve it with the exclude-aware
++				 * ownership walk so a flipped foreign-owned parent symlink can't
++				 * read (and feed back as delta) an out-of-tree / excluded file.
++				 * The walk still allows the legitimate "../sibling" basis (#915)
++				 * and the operator's own uid0/euid symlinks.  A daemon keeps its
++				 * stronger confinement branch in secure_basis_open(), so only
++				 * route the alt-dest basedir read through the walk off-daemon. */
++				if ((basedir && !am_daemon) || fnamecmp_type == FNAMECMP_PARTIAL_DIR)
+ 					operator_path_resolve = 1;
+ 				fd1 = secure_basis_open(basedir, fnamecmp, O_RDONLY, 0);
+ 				operator_path_resolve = 0;
+@@ -983,7 +989,10 @@ int recv_files(int f_in, int f_out, char *local_name)
+ 				basedir = basis_dir[0];
+ 				fnamecmp = fname;
+ 				fnamecmp_type = FNAMECMP_BASIS_DIR_LOW;
++				if (!am_daemon)
++					operator_path_resolve = 1;
+ 				fd1 = secure_basis_open(basedir, fnamecmp, O_RDONLY, 0);
++				operator_path_resolve = 0;
+ 			}
+ 		}
+ 
+diff --git a/rsync.c b/rsync.c
+index 4e30f4c4..044826d2 100644
+--- a/rsync.c
++++ b/rsync.c
+@@ -583,6 +583,10 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 		 * legacy path op rather than spuriously failing a real file. */
+ 		if (op_leaf_fd < 0 && (am_root > 0 || errno == ELOOP))
+ 			op_refuse = 1;
++#if defined SUPPORT_XATTRS || defined SUPPORT_ACLS
++		if (op_leaf_fd >= 0)
++			held_fd = op_leaf_fd;	/* xattr/ACL ops below pin to this leaf fd too */
++#endif
+ 	}
+ 
+ 	if (inherit && S_ISDIR(new_mode) && sxp->st.st_mode & S_ISGID) {
+@@ -595,7 +599,7 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 		new_mode = tweak_mode(new_mode, daemon_chmod_modes);
+ 
+ #ifdef SUPPORT_ACLS
+-	if (preserve_acls && !S_ISLNK(file->mode) && !ACL_READY(*sxp))
++	if (preserve_acls && !S_ISLNK(file->mode) && !ACL_READY(*sxp) && !op_refuse)
+ 		get_acl_fdat(held_fd, dfd, leaf, fname, sxp);
+ #endif
+ 
+@@ -657,9 +661,9 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 	}
+ 
+ #ifdef SUPPORT_XATTRS
+-	if (am_root < 0)
++	if (am_root < 0 && !op_refuse)
+ 		set_stat_xattr(fname, file, new_mode, held_fd);
+-	if (preserve_xattrs && fnamecmp)
++	if (preserve_xattrs && fnamecmp && !op_refuse)
+ 		set_xattr(fname, file, fnamecmp, sxp, held_fd);
+ #endif
+ 
+@@ -714,9 +718,19 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 	}
+ #endif
+ 	if (updated & (UPDATED_MTIME|UPDATED_ATIME)) {
+-		int ret = dfd >= 0 ? set_times_at(dfd, leaf, &sx2.st) : -2;
+-		if (ret == -2)
+-			ret = set_times(fname, &sx2.st);
++		int ret;
++#ifdef HAVE_FUTIMENS
++		if (op_leaf_fd >= 0)
++			ret = do_futimens(op_leaf_fd, &sx2.st);
++		else
++#endif
++		if (op_refuse)
++			ret = (errno = ELOOP, -1);
++		else {
++			ret = dfd >= 0 ? set_times_at(dfd, leaf, &sx2.st) : -2;
++			if (ret == -2)
++				ret = set_times(fname, &sx2.st);
++		}
+ 		if (ret < 0) {
+ 			rsyserr(FERROR_XFER, errno, "failed to set times on %s", full_fname(fname));
+ 			goto cleanup;
+@@ -734,7 +748,7 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 	 * If set_acl() changes permission bits in the process of setting
+ 	 * an access ACL, it changes sxp->st.st_mode so we know whether we
+ 	 * need to chmod(). */
+-	if (preserve_acls && !S_ISLNK(new_mode)) {
++	if (preserve_acls && !S_ISLNK(new_mode) && !op_refuse) {
+ 		if (set_acl_fdat(held_fd, dfd, leaf, fname, file, sxp, new_mode) > 0)
+ 			updated |= UPDATED_ACLS;
+ 	}
+@@ -766,7 +780,7 @@ int set_file_attrs(const char *fname, struct file_struct *file, stat_x *sxp,
+ 	}
+   cleanup:
+ #if defined SUPPORT_XATTRS || defined SUPPORT_ACLS
+-	if (held_fd >= 0)
++	if (held_fd >= 0 && held_fd != op_leaf_fd)	/* may alias op_leaf_fd (cross-tree) */
+ 		close(held_fd);
+ #endif
+ 	if (op_leaf_fd >= 0)
+@@ -839,9 +853,15 @@ int finish_transfer(const char *fname, const char *fnametmp,
+ 			fnamecmp = get_backup_name(fname);
+ 	}
+ 
+-	/* Change permissions before putting the file into place. */
++	/* Change permissions before putting the file into place.  An absolute
++	 * --temp-dir/--partial-dir leaves fnametmp on an operator path with no held
++	 * dirfd, so resolve its metadata through the ownership walk (op_pin); a
++	 * flipped temp-dir parent then can't redirect the chmod/chown/times/etc.
++	 * (in-tree temps keep their held dirfd, so op_pin stays off there). */
++	operator_path_resolve = 1;
+ 	set_file_attrs(fnametmp, file, NULL, fnamecmp,
+ 		       ok_to_set_time ? ATTRS_ACCURATE_TIME : ATTRS_SKIP_MTIME | ATTRS_SKIP_ATIME | ATTRS_SKIP_CRTIME);
++	operator_path_resolve = 0;
+ 
+ 	/* move tmp file over real file */
+ 	if (DEBUG_GTE(RECV, 1))
+diff --git a/syscall.c b/syscall.c
+index f4d7c634..73199340 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -837,9 +837,21 @@ int do_link_at(const char *old_path, const char *new_path)
+ 	 * "cd/target.txt", ...) escape the module.  An absolute path uses
+ 	 * AT_FDCWD + the full path; each side is confined independently, so an
+ 	 * absolute source (e.g. an absolute --link-dest) cannot disable
+-	 * confinement of a relative destination. */
++	 * confinement of a relative destination.  An absolute side is an operator
++	 * path resolved via the ownership walk (foreign-owned parent symlink refused;
++	 * --insecure-links keeps the legacy AT_FDCWD path). */
+ 	if (*old_path == '/') {
+-		old_bname = old_path;
++#if defined O_NOFOLLOW && defined O_DIRECTORY
++		if (!symlink_optout_allowed()) {
++			operator_path_resolve = 1;	/* operator side: enforce module-exclude */
++			old_dfd = owner_walk_parent(old_path, &old_bname);
++			operator_path_resolve = 0;
++			if (old_dfd < 0)
++				return -1;
++			old_owns = True;
++		} else
++#endif
++			old_bname = old_path;
+ 	} else if (old_slash) {
+ 		old_dlen = old_slash - old_path;
+ 		if (old_dlen >= sizeof old_dirpath) { errno = ENAMETOOLONG; return -1; }
+@@ -855,7 +867,21 @@ int do_link_at(const char *old_path, const char *new_path)
+ 	}
+ 
+ 	if (*new_path == '/') {
+-		new_bname = new_path;
++#if defined O_NOFOLLOW && defined O_DIRECTORY
++		if (!symlink_optout_allowed()) {
++			operator_path_resolve = 1;	/* operator side: enforce module-exclude */
++			new_dfd = owner_walk_parent(new_path, &new_bname);
++			operator_path_resolve = 0;
++			if (new_dfd < 0) {
++				e = errno;
++				if (old_owns) close(old_dfd);
++				errno = e;
++				return -1;
++			}
++			new_owns = True;
++		} else
++#endif
++			new_bname = new_path;
+ 	} else if (new_slash) {
+ 		new_dlen = new_slash - new_path;
+ 		if (new_dlen >= sizeof new_dirpath) {
+@@ -1577,14 +1603,26 @@ int do_rename_at(const char *old_path, const char *new_path)
+ 	old_slash = strrchr(old_path, '/');
+ 	new_slash = strrchr(new_path, '/');
+ 
+-	/* An absolute path uses AT_FDCWD with the full path; only a *relative* side
+-	 * is confined under the secure resolver.  Confine each side independently:
+-	 * an absolute source (e.g. an absolute --temp-dir temp file) must NOT
+-	 * disable confinement of a relative destination, or finish_transfer's
+-	 * tmp->final rename re-resolves the dest from the path and a flipped parent
+-	 * symlink writes the file outside the tree (a symlink-race write escape). */
++	/* Confine each side independently.  A *relative* side is a transfer path,
++	 * confined beneath the tree via secure_relative_open().  An *absolute* side is
++	 * an operator path (an absolute --temp-dir/--partial-dir temp file): resolve
++	 * its parent via the ownership walk so a flipped foreign-owned parent symlink
++	 * can't redirect the rename out of tree, while still allowing the operator's
++	 * own dirs/".."/uid0-or-euid symlinks.  (--insecure-links keeps the legacy
++	 * unconfined AT_FDCWD path.)  Doing each side independently means an absolute
++	 * source never disables confinement of a relative destination. */
+ 	if (*old_path == '/') {
+-		old_bname = old_path;
++#if defined O_NOFOLLOW && defined O_DIRECTORY
++		if (!symlink_optout_allowed()) {
++			operator_path_resolve = 1;	/* operator side: enforce module-exclude */
++			old_dfd = owner_walk_parent(old_path, &old_bname);
++			operator_path_resolve = 0;
++			if (old_dfd < 0)
++				return -1;
++			old_owns = True;
++		} else
++#endif
++			old_bname = old_path;
+ 	} else if (old_slash) {
+ 		old_dlen = old_slash - old_path;
+ 		if (old_dlen >= sizeof old_dirpath) {
+@@ -1603,7 +1641,21 @@ int do_rename_at(const char *old_path, const char *new_path)
+ 	}
+ 
+ 	if (*new_path == '/') {
+-		new_bname = new_path;
++#if defined O_NOFOLLOW && defined O_DIRECTORY
++		if (!symlink_optout_allowed()) {
++			operator_path_resolve = 1;	/* operator side: enforce module-exclude */
++			new_dfd = owner_walk_parent(new_path, &new_bname);
++			operator_path_resolve = 0;
++			if (new_dfd < 0) {
++				e = errno;
++				if (old_owns) close(old_dfd);
++				errno = e;
++				return -1;
++			}
++			new_owns = True;
++		} else
++#endif
++			new_bname = new_path;
+ 	} else if (new_slash) {
+ 		new_dlen = new_slash - new_path;
+ 		if (new_dlen >= sizeof new_dirpath) {
+@@ -3432,6 +3484,31 @@ int do_fchmod(int fd, mode_t mode)
+ }
+ #endif
+ 
++#ifdef HAVE_FUTIMENS
++/* Set times on an already-open fd (the race-free counterpart for a pinned
++ * cross-tree operator leaf -- see set_file_attrs()). */
++int do_futimens(int fd, STRUCT_STAT *stp)
++{
++	struct timespec t[2];
++
++	if (dry_run) return 0;
++	RETURN_ERROR_IF_RO_OR_LO;
++	t[0].tv_sec = stp->st_atime;
++#ifdef ST_ATIME_NSEC
++	t[0].tv_nsec = stp->ST_ATIME_NSEC;
++#else
++	t[0].tv_nsec = 0;
++#endif
++	t[1].tv_sec = stp->st_mtime;
++#ifdef ST_MTIME_NSEC
++	t[1].tv_nsec = stp->ST_MTIME_NSEC;
++#else
++	t[1].tv_nsec = 0;
++#endif
++	return futimens(fd, t);
++}
++#endif
++
+ #ifdef HAVE_UTIMENSAT
+ int do_utimensat_atfd(int dfd, const char *name, STRUCT_STAT *stp)
+ {

@@ -1,0 +1,92 @@
+From 24e229f2131e736252100085b756f31844648f17 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:07 +0800
+Subject: [PATCH 019/200] ae16c61b
+
+---
+ receiver.c | 57 ++++++++++--------------------------------------------
+ 1 file changed, 10 insertions(+), 47 deletions(-)
+
+diff --git a/receiver.c b/receiver.c
+index 79d45eb7..a23304df 100644
+--- a/receiver.c
++++ b/receiver.c
+@@ -99,27 +99,6 @@ static int updating_basis_or_equiv;
+  * Anything else is a straight pass-through that preserves the strict contract. */
+ static int secure_basis_open(const char *basedir, const char *relpath, int flags, mode_t mode)
+ {
+-	extern int am_daemon, am_chrooted;
+-
+-	/* The confined resolver is only needed for the sanitizing daemon
+-	 * (am_daemon && !am_chrooted, i.e. use_secure_symlinks).  Local /
+-	 * remote-shell mode has no module boundary, and "use chroot = yes" makes
+-	 * the kernel root the boundary, so there an alt-dest basis like
+-	 * --link-dest=../01 must resolve against the cwd as a bare open did before
+-	 * the hardening (confining it would reject the legitimate sibling "..",
+-	 * #915). */
+-	if (!am_daemon || am_chrooted) {
+-		if (basedir) {
+-			char fullpath[MAXPATHLEN];
+-			if (pathjoin(fullpath, sizeof fullpath, basedir, relpath) >= sizeof fullpath) {
+-				errno = ENAMETOOLONG;
+-				return -1;
+-			}
+-			return do_open(fullpath, flags, mode);
+-		}
+-		return do_open(relpath, flags, mode);
+-	}
+-
+ 	if (!basedir && relpath && *relpath == '/') {
+ 		const char *slash = strrchr(relpath, '/');
+ 		const char *leaf = slash + 1;
+@@ -423,32 +402,16 @@ static int receive_data(int f_in, char *fname_r, int fd_r, OFF_T size_r,
+ 
+ 		stats.matched_data += len;
+ 
+-		/* A block match with no mapped basis is a protocol inconsistency
+-		 * ONLY when we are actually producing output (fd != -1): the
+-		 * generator told the sender a basis existed but the receiver could
+-		 * not open it, so honoring the match would silently omit these
+-		 * bytes from the verification checksum (a spurious failure) or
+-		 * leave a hole in the output. Fail cleanly in that case.
+-		 *
+-		 * On the DISCARD path (fd == -1, fname == NULL) there is no output
+-		 * and no verification: discard_receive_data() deliberately drains a
+-		 * delta the receiver never intends to write (basis fstat failed,
+-		 * basis is a directory, output open failed, batch skip, ...). The
+-		 * sender does not know the data is being discarded and streams an
+-		 * ordinary delta, so a match token here is NORMAL protocol, not
+-		 * malformed. Absorb it benignly (advance the offset and continue),
+-		 * as the pre-existing "if (mapbuf)" guards did before this check was
+-		 * added in 31fbb17d -- erroring would wrongly break legitimate
+-		 * transfers, and full_fname(fname) with fname==NULL would
+-		 * dereference NULL (a receiver crash on a normal transfer). */
++		/* A block match can only be honored if we actually mapped the
++		 * basis. If we didn't (basis open failed), the sender should
++		 * never have been told a basis existed -- treat it as a protocol
++		 * inconsistency rather than silently omitting these bytes from
++		 * the verification checksum (which yields a spurious failure) or
++		 * leaving a hole in the output. */
+ 		if (!mapbuf) {
+-			if (fd != -1) {
+-				rprintf(FERROR, "got a block match with no basis file for %s [%s]\n",
+-					full_fname(fname), who_am_i());
+-				exit_cleanup(RERR_PROTOCOL);
+-			}
+-			offset += len;
+-			continue;
++			rprintf(FERROR, "got a block match with no basis file for %s [%s]\n",
++				full_fname(fname), who_am_i());
++			exit_cleanup(RERR_PROTOCOL);
+ 		}
+ 
+ 		if (DEBUG_GTE(DELTASUM, 3)) {
+@@ -972,7 +935,7 @@ int recv_files(int f_in, int f_out, char *local_name)
+ 			 * attacker could switch a directory to a symlink between
+ 			 * path validation and file open. */
+ 			if (use_secure_symlinks)
+-				fd2 = secure_relative_open(NULL, fnametmp, O_WRONLY|O_CREAT, 0600);
++				fd2 = secure_basis_open(NULL, fnametmp, O_WRONLY|O_CREAT, 0600);
+ 			else
+ 				fd2 = do_open(fnametmp, O_WRONLY|O_CREAT, 0600);
+ #ifdef linux
