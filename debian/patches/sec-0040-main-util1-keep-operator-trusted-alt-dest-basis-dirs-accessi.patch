@@ -1,0 +1,61 @@
+From c9cc486277319eebc7e57d8457c11f3bc05a95a6 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:08 +0800
+Subject: [PATCH 040/200] 4677288a
+
+---
+ main.c  | 10 ++++++++--
+ util1.c | 10 ++++------
+ 2 files changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/main.c b/main.c
+index 229a8897..053b242d 100644
+--- a/main.c
++++ b/main.c
+@@ -867,10 +867,16 @@ static void check_alt_basis_dirs(void)
+ 		int bd_len = strlen(bdir);
+ 		if (bd_len > 1 && bdir[bd_len-1] == '/')
+ 			bdir[--bd_len] = '\0';
+-		if (dry_run > 1 && *bdir != '/') {
++		/* Make a relative --link-dest/--copy-dest/--compare-dest absolute
++		 * (vs the destination curr_dir).  These are operator-trusted roots,
++		 * so an absolute path makes the do_*_at() wrappers use plain
++		 * resolution rather than reject an operator '..' outside the dest
++		 * tree (e.g. --copy-dest=../to).  Skipped when sanitize_paths already
++		 * confined them; the dry_run>1 case keeps its leading-"../"-strip. */
++		if (*bdir != '/' && (dry_run > 1 || !sanitize_paths)) {
+ 			int len = curr_dir_len + 1 + bd_len + 1;
+ 			char *new = new_array(char, len);
+-			if (slash && strncmp(bdir, "../", 3) == 0) {
++			if (dry_run > 1 && slash && strncmp(bdir, "../", 3) == 0) {
+ 				/* We want to remove only one leading "../" prefix for
+ 				 * the directory we couldn't create in dry-run mode:
+ 				 * this ensures that any other ".." references get
+diff --git a/util1.c b/util1.c
+index 70a247ca..ce62332c 100644
+--- a/util1.c
++++ b/util1.c
+@@ -385,19 +385,17 @@ static int unlink_and_reopen(const char *dest, mode_t mode)
+  * --copy-dest options. */
+ int copy_file(const char *source, const char *dest, int tmpfilefd, mode_t mode)
+ {
+-	extern int am_daemon, am_chrooted;
+ 	int ifd, ofd;
+ 	char buf[1024 * 8];
+ 	int len;   /* Number of bytes read into `buf'. */
+ 	OFF_T prealloc_len = 0, offset = 0;
+ 
+-	/* On a daemon without chroot, route the source open through
++	/* For a hardened receiver, route a *relative* source open through
+ 	 * secure_relative_open so a parent-symlink on the source path
+ 	 * (e.g. --copy-dest=cd where cd is a symlink to an outside
+-	 * directory) cannot redirect the read to a file the daemon can
+-	 * see but the attacker should not. Plain do_open_nofollow only
+-	 * refuses a final-component symlink; parents are still followed. */
+-	if (am_daemon && !am_chrooted && source && *source && source[0] != '/')
++	 * directory) cannot redirect the read.  An absolute source is an
++	 * operator-trusted (absolutized) basis dir and uses do_open_nofollow. */
++	if (secure_relpath_active() && source && *source && source[0] != '/')
+ 		ifd = secure_relative_open(NULL, source, O_RDONLY | O_NOFOLLOW, 0);
+ 	else
+ 		ifd = do_open_nofollow(source, O_RDONLY);

@@ -1,0 +1,87 @@
+From eafec86265c8f194ab65c2fb0837f97792cfadbb Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:07 +0800
+Subject: [PATCH 025/200] c72030fc
+
+---
+ Makefile.in |  4 ++--
+ syscall.c   | 23 ++++++++++++++++++-----
+ 2 files changed, 20 insertions(+), 7 deletions(-)
+
+diff --git a/Makefile.in b/Makefile.in
+index 88f4f5cd..79060b3f 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -186,11 +186,11 @@ T_UNSAFE_OBJ = t_unsafe.o syscall.o android.o util1.o util2.o t_stub.o lib/compa
+ t_unsafe$(EXEEXT): $(T_UNSAFE_OBJ)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(T_UNSAFE_OBJ) $(LIBS)
+ 
+-T_CHMOD_SECURE_OBJ = t_chmod_secure.o syscall.o util1.o util2.o t_stub.o lib/compat.o lib/snprintf.o lib/wildmatch.o lib/permstring.o
++T_CHMOD_SECURE_OBJ = t_chmod_secure.o syscall.o android.o util1.o util2.o t_stub.o lib/compat.o lib/snprintf.o lib/wildmatch.o lib/permstring.o
+ t_chmod_secure$(EXEEXT): $(T_CHMOD_SECURE_OBJ)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(T_CHMOD_SECURE_OBJ) $(LIBS)
+ 
+-T_SECURE_RELPATH_OBJ = t_secure_relpath.o syscall.o util1.o util2.o t_stub.o lib/compat.o lib/snprintf.o lib/wildmatch.o lib/permstring.o
++T_SECURE_RELPATH_OBJ = t_secure_relpath.o syscall.o android.o util1.o util2.o t_stub.o lib/compat.o lib/snprintf.o lib/wildmatch.o lib/permstring.o
+ t_secure_relpath$(EXEEXT): $(T_SECURE_RELPATH_OBJ)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(T_SECURE_RELPATH_OBJ) $(LIBS)
+ 
+diff --git a/syscall.c b/syscall.c
+index d7de6bd8..1c3d1c9a 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -33,7 +33,7 @@
+ #include <sys/syscall.h>
+ #endif
+ 
+-#ifdef __linux__
++#if defined(__linux__) && defined(HAVE_OPENAT2)
+ #include <sys/syscall.h>
+ #include <linux/openat2.h>
+ #endif
+@@ -1693,7 +1693,20 @@ static int path_has_dotdot_component(const char *path)
+ 	return 0;
+ }
+ 
+-#ifdef __linux__
++#if defined(__linux__) && defined(HAVE_OPENAT2)
++/* openat2(RESOLVE_BENEATH) via the raw syscall, gated on openat2_usable() so a
++ * seccomp filter that traps openat2 with SIGSYS (e.g. the Android sandbox)
++ * makes us report ENOSYS and fall back rather than killing the process.  Only
++ * the openat2 call is gated here; a plain openat() is always safe to attempt. */
++static int openat2_beneath(int dirfd, const char *path, const struct open_how *how)
++{
++	if (!openat2_usable()) {
++		errno = ENOSYS;
++		return -1;
++	}
++	return syscall(SYS_openat2, dirfd, path, how, sizeof *how);
++}
++
+ static int secure_relative_open_linux(const char *basedir, const char *relpath, int flags, mode_t mode)
+ {
+ 	struct open_how how;
+@@ -1722,12 +1735,12 @@ static int secure_relative_open_linux(const char *basedir, const char *relpath,
+ 		memset(&bhow, 0, sizeof bhow);
+ 		bhow.flags = O_RDONLY | O_DIRECTORY;
+ 		bhow.resolve = RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS;
+-		dirfd = syscall(SYS_openat2, AT_FDCWD, basedir, &bhow, sizeof bhow);
++		dirfd = openat2_beneath(AT_FDCWD, basedir, &bhow);
+ 		if (dirfd == -1)
+ 			return -1;
+ 	}
+ 
+-	retfd = syscall(SYS_openat2, dirfd, relpath, &how, sizeof how);
++	retfd = openat2_beneath(dirfd, relpath, &how);
+ 
+ 	if (dirfd != AT_FDCWD)
+ 		close(dirfd);
+@@ -1853,7 +1866,7 @@ int secure_relative_open(const char *basedir, const char *relpath, int flags, mo
+ 		}
+ 	}
+ 
+-#ifdef __linux__
++#if defined(__linux__) && defined(HAVE_OPENAT2)
+ 	{
+ 		int fd = secure_relative_open_linux(basedir, relpath, flags, mode);
+ 		/* ENOSYS = kernel < 5.6 doesn't have the syscall even though

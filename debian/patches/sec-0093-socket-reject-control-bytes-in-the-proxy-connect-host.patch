@@ -1,0 +1,29 @@
+From 0c7ffff0a3229ebf3c131c8e3e91d9ebddd75327 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:10 +0800
+Subject: [PATCH 093/200] fa0419b2
+
+---
+ socket.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/socket.c b/socket.c
+index d100c2ca..1046f8b9 100644
+--- a/socket.c
++++ b/socket.c
+@@ -58,6 +58,15 @@ static int establish_proxy_connection(int fd, char *host, int port, char *proxy_
+ 	char *authhdr, authbuf[PROXY_BUF_SIZE + 1];
+ 	int len;
+ 
++	/* Reject control bytes in the host so they can't be smuggled into the
++	 * HTTP CONNECT request line (CRLF header/request injection). */
++	for (cp = host; *cp; cp++) {
++		if ((unsigned char)*cp < 0x20 || (unsigned char)*cp == 0x7f) {
++			rprintf(FERROR, "invalid control character in proxy CONNECT host\n");
++			return -1;
++		}
++	}
++
+ 	if (proxy_user && proxy_pass) {
+ 		stringjoin(buffer, PROXY_BUF_SIZE,
+ 			 proxy_user, ":", proxy_pass, NULL);

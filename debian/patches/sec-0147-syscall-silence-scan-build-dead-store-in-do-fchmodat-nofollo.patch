@@ -1,0 +1,32 @@
+From e72e204abb460bb0143f64bff71ff9072846eeac Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:12 +0800
+Subject: [PATCH 147/200] 8b506aea
+
+---
+ syscall.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/syscall.c b/syscall.c
+index ee567b77..e019a6bc 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -1416,8 +1416,8 @@ int do_chmod(const char *path, mode_t mode)
+  * exists we skip with a warning rather than follow the leaf. */
+ static int do_fchmodat_nofollow(int dfd, const char *name, mode_t mode)
+ {
+-	mode &= CHMOD_BITS;
+ #if defined AT_FDCWD && defined AT_SYMLINK_NOFOLLOW
++	mode &= CHMOD_BITS;
+ # if defined __linux__
+ 	{
+ 		STRUCT_STAT st;
+@@ -1463,6 +1463,8 @@ static int do_fchmodat_nofollow(int dfd, const char *name, mode_t mode)
+ 	return fchmodat(dfd, name, mode, AT_SYMLINK_NOFOLLOW);
+ # endif
+ #else
++	(void)dfd;
++	(void)mode;
+ 	/* No symlink-safe chmod primitive here: skip rather than follow the leaf. */
+ 	rprintf(FWARNING, "do_chmod: no symlink-safe chmod for \"%s\"; mode not set\n", name);
+ 	return 1;

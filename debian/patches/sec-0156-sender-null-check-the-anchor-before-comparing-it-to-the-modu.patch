@@ -1,0 +1,25 @@
+From 6de50206ac5c4d67d4020cef6e5795f5073230bf Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:13 +0800
+Subject: [PATCH 156/200] 593abd13
+
+---
+ sender.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/sender.c b/sender.c
+index 27748ce2..38488c0a 100644
+--- a/sender.c
++++ b/sender.c
+@@ -243,7 +243,10 @@ static int sender_open_copylinks_confined(const char *anchor, const char *relpat
+ 			dir[0] = '\0';
+ 			bname = cur;
+ 		}
+-		if (am_daemon && module_dirfd >= 0 && module_dir
++		/* anchor is checked explicitly: the resolver treats a NULL anchor as
++		 * "relative to cwd", so it is a legal argument for the else branch --
++		 * only this branch would hand it to strcmp(). */
++		if (am_daemon && module_dirfd >= 0 && module_dir && anchor
+ 		 && strcmp(anchor, module_dir) == 0)
+ 			pdfd = secure_relative_open_at_beneath(module_dirfd, dir,
+ 					O_RDONLY | O_DIRECTORY, 0);

@@ -1,0 +1,46 @@
+From b311bac500000a14c1198cf6dd6798cf94e2d3b1 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:12 +0800
+Subject: [PATCH 131/200] d29344b3
+
+---
+ backup.c | 25 ++++++++++++++++---------
+ 1 file changed, 16 insertions(+), 9 deletions(-)
+
+diff --git a/backup.c b/backup.c
+index c96de3b9..e72fd7cd 100644
+--- a/backup.c
++++ b/backup.c
+@@ -286,16 +286,23 @@ static int make_backup_inner(const char *fname, BOOL prefer_rename)
+ 	if (preserve_links && S_ISLNK(sx.st.st_mode) && safe_symlinks) {
+ 		char lnkbuf[MAXPATHLEN];
+ 		int llen = do_readlink(fname, lnkbuf, MAXPATHLEN - 1);
+-		if (llen > 0) {
+-			lnkbuf[llen] = '\0';
+-			if (unsafe_symlink(lnkbuf, fname)) {
+-				if (INFO_GTE(SYMSAFE, 1)) {
+-					rprintf(FINFO, "not backing up unsafe symlink \"%s\" -> \"%s\"\n",
+-						fname, lnkbuf);
+-				}
+-				ret = 2;
+-				goto success;
++		/* A failed readlink means we can't verify the target, so fail
++		 * closed: skip the backup rather than let the hard-link fast path
++		 * preserve a possibly-unsafe symlink unchecked. */
++		if (llen <= 0) {
++			if (INFO_GTE(SYMSAFE, 1))
++				rprintf(FINFO, "not backing up symlink with unreadable target \"%s\"\n", fname);
++			ret = 2;
++			goto success;
++		}
++		lnkbuf[llen] = '\0';
++		if (unsafe_symlink(lnkbuf, fname)) {
++			if (INFO_GTE(SYMSAFE, 1)) {
++				rprintf(FINFO, "not backing up unsafe symlink \"%s\" -> \"%s\"\n",
++					fname, lnkbuf);
+ 			}
++			ret = 2;
++			goto success;
+ 		}
+ 	}
+ #endif

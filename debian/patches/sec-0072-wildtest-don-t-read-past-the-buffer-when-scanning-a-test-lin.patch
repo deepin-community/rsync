@@ -1,0 +1,45 @@
+From d32eb0e6fc25a613fa5284af63b09bcb41a9af3b Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 072/200] 2c55da28
+
+---
+ wildtest.c | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/wildtest.c b/wildtest.c
+index 381ac59d..10cab003 100644
+--- a/wildtest.c
++++ b/wildtest.c
+@@ -163,14 +163,17 @@ main(int argc, char **argv)
+ 		flag[i] = 0;
+ 	    else
+ 		flag[i] = -1;
+-	    if (*++s != ' ' && *s != '\t')
++	    if (!*s || (*++s != ' ' && *s != '\t'))
+ 		flag[i] = -1;
+ 	    if (flag[i] < 0) {
+ 		fprintf(stderr, "Invalid flag syntax on line %d of %s:\n%s",
+ 			line, *argv, buf);
+ 		exit(1);
+ 	    }
+-	    while (*++s == ' ' || *s == '\t') {}
++	    if (*s)
++		s++;
++	    while (*s == ' ' || *s == '\t')
++		s++;
+ 	}
+ 	for (i = 0; i <= 1; i++) {
+ 	    if (*s == '\'' || *s == '"' || *s == '`') {
+@@ -194,7 +197,10 @@ main(int argc, char **argv)
+ 		while (*++s && *s != ' ' && *s != '\t' && *s != '\n') {}
+ 		end[i] = s;
+ 	    }
+-	    while (*++s == ' ' || *s == '\t') {}
++	    if (*s)
++		s++;
++	    while (*s == ' ' || *s == '\t')
++		s++;
+ 	}
+ 	*end[0] = *end[1] = '\0';
+ 	run_test(line, flag[0],

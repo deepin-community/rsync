@@ -1,0 +1,27 @@
+From 24380d7ee7863aba1e24a0a85c1bf6f98ef72c7f Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:10 +0800
+Subject: [PATCH 088/200] ffc91be5
+
+---
+ io.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/io.c b/io.c
+index 6f8de9ad..640119a4 100644
+--- a/io.c
++++ b/io.c
+@@ -1365,6 +1365,13 @@ void read_args(int f_in, char *mod_name, char *buf, size_t bufsiz, int rl_nulls,
+ 				dot_pos = argc;
+ 		}
+ 	}
++	/* glob_expand()/glob_match() reserve glob.argc+1 slots -- room for the
++	 * entry being added but not for this trailing NULL.  A post-dot line
++	 * whose " mod/" splits land argc on exactly maxargs (or any later
++	 * ENSURE_MEMSPACE doubling boundary) would otherwise make the next
++	 * store an 8-byte NULL write one slot past the argv allocation. */
++	if (argc >= maxargs)
++		argv = realloc_array(argv, char *, maxargs = argc + 1);
+ 	argv[argc] = NULL;
+ 
+ 	glob_expand(NULL, NULL, NULL, NULL);

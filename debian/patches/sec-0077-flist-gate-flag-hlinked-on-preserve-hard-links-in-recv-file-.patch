@@ -1,0 +1,22 @@
+From d6cd098d2d9205243282d943da312caa99a7ffaa Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 077/200] 3c49c401
+
+---
+ flist.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/flist.c b/flist.c
+index 744c87df..a72acf80 100644
+--- a/flist.c
++++ b/flist.c
+@@ -1118,7 +1118,7 @@ static struct file_struct *recv_file_entry(int f, struct file_list *flist, int x
+ 	memcpy(bp, basename, basename_len);
+ 
+ #ifdef SUPPORT_HARD_LINKS
+-	if (xflags & XMIT_HLINKED
++	if (preserve_hard_links && xflags & XMIT_HLINKED
+ #ifndef CAN_HARDLINK_SYMLINK
+ 	 && !S_ISLNK(mode)
+ #endif

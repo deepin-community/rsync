@@ -1,0 +1,49 @@
+From 137304a5ee1a7dbf04b598e1f58df183c96888b3 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:08 +0800
+Subject: [PATCH 050/200] 535a562c
+
+---
+ syscall.c | 13 +++++++++++--
+ t_stub.c  |  1 +
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/syscall.c b/syscall.c
+index 005ce1b9..3f70f726 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -1840,11 +1840,20 @@ static int path_has_dotdot_component(const char *path)
+ /* Symlink-race-safe path resolver: a held-dirfd-stack walk (replaces the
+  * 3.4.x openat2/RESOLVE_BENEATH resolver) -- follows in-tree symlinks while
+  * confining beneath the anchor. */
++extern char *module_dir;
++extern int module_dirfd;	/* daemon: served module root pinned by identity, or -1 */
++
+ #if defined AT_FDCWD && defined O_NOFOLLOW && defined O_DIRECTORY
+-/* Open a trusted absolute anchor directory as an owned dirfd.  (The daemon
+- * module_dirfd privilege-drop optimization is added with that backport.) */
++/* Open a trusted absolute anchor directory as an owned dirfd.  When the anchor is
++ * the served module root and the daemon pinned it by identity (module_dirfd), dup
++ * that fd rather than re-resolving the absolute path with openat(AT_FDCWD, ...) --
++ * which re-traverses the module's ancestors as the dropped-privilege module uid
++ * and EACCESes when the module sits under a non-traversable parent (a 0700 home).
++ * Functionally identical (same inode), just privilege-drop-safe. */
+ static int open_anchor_dirfd(const char *path)
+ {
++	if (module_dirfd >= 0 && am_daemon && module_dir && strcmp(path, module_dir) == 0)
++		return dup(module_dirfd);
+ 	return openat(AT_FDCWD, path, O_RDONLY | O_DIRECTORY);
+ }
+ #endif
+diff --git a/t_stub.c b/t_stub.c
+index 8f2f8ea6..85f59604 100644
+--- a/t_stub.c
++++ b/t_stub.c
+@@ -42,6 +42,7 @@ size_t max_alloc = (size_t)-1; /* unlimited: helpers link util2.o, where 0 makes
+ 			       * secure_relative_open() fallback path). */
+ char *partial_dir;
+ char *module_dir;
++int module_dirfd = -1;
+ /* curr_dir[]/curr_dir_len (read by secure_relative_open) are defined in
+  * syscall.c, which every helper links -- no stub needed here. */
+ filter_rule_list daemon_filter_list;

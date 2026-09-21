@@ -1,0 +1,33 @@
+From 14fa08854c8ef53020eb77c6fd84352c40256004 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:13 +0800
+Subject: [PATCH 176/200] fa70cc90
+
+---
+ backup.c | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/backup.c b/backup.c
+index e72fd7cd..df9dac98 100644
+--- a/backup.c
++++ b/backup.c
+@@ -195,12 +195,15 @@ char *get_backup_name(const char *fname)
+ 	if (backup_dir) {
+ 		static int initialized = 0;
+ 		if (!initialized) {
++			char dirbuf[MAXPATHLEN];
+ 			int ret;
++			if (strlcpy(dirbuf, backup_dir_buf, sizeof dirbuf) >= sizeof dirbuf) {
++				errno = ENAMETOOLONG;
++				return NULL;
++			}
+ 			if (backup_dir_len > 1)
+-				backup_dir_buf[backup_dir_len-1] = '\0';
+-			ret = make_path(backup_dir_buf, 0);
+-			if (backup_dir_len > 1)
+-				backup_dir_buf[backup_dir_len-1] = '/';
++				dirbuf[backup_dir_len-1] = '\0';
++			ret = make_path(dirbuf, 0);
+ 			if (ret < 0)
+ 				return NULL;
+ 			initialized = 1;

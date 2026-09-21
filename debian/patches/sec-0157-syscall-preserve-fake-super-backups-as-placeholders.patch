@@ -1,0 +1,35 @@
+From af037049a460328ffe8f28fa6da36214d2a9c4d3 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:13 +0800
+Subject: [PATCH 157/200] 0d7cd203
+
+---
+ syscall.c | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/syscall.c b/syscall.c
+index 04185b07..79533664 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -1111,8 +1111,19 @@ int do_mknod_at(const char *pathname, mode_t mode, dev_t dev)
+ 		dfd = owner_walk_parent(pathname, &bname);
+ 		if (dfd < 0)
+ 			return -1;
+-		ret = mknodat(dfd, bname, mode, dev);
+-		if (ret < 0) {
++		if (am_root < 0) {
++			/* Fake-super represents a special file with an inert regular
++			 * placeholder.  Keep that representation when the destination
++			 * is an operator path, but create it relative to the verified
++			 * parent so the confinement guarantee is unchanged. */
++			int fd = openat(dfd, bname,
++				O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW,
++				S_IWUSR | S_IRUSR);
++			ret = fd < 0 ? -1 : close(fd);
++		} else {
++			ret = mknodat(dfd, bname, mode, dev);
++		}
++		if (ret < 0 && am_root >= 0) {
+ 			/* mknodat() can't make a FIFO/socket on the BSDs/macOS/
+ 			 * Solaris (EINVAL); retry race-safely on the held dirfd,
+ 			 * mirroring the secure-relpath path below.  Without this a

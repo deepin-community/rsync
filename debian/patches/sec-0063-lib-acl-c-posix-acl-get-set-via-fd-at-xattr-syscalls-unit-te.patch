@@ -1,0 +1,1118 @@
+From ea13ace9044e97743ef047a6f6c35f14018ce1c6 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 063/200] d7f929a3
+
+---
+ Makefile.in  |  14 +-
+ configure.ac |  36 ++++
+ lib/acl.c    | 388 +++++++++++++++++++++++++++++++++++++
+ lib/acl.h    |  74 +++++++
+ t_acl.c      | 532 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 1041 insertions(+), 3 deletions(-)
+ create mode 100644 lib/acl.c
+ create mode 100644 lib/acl.h
+ create mode 100644 t_acl.c
+
+diff --git a/Makefile.in b/Makefile.in
+index cbda037e..0c8c0fb6 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -40,7 +40,7 @@ GENFILES=configure.sh aclocal.m4 config.h.in rsync.1 rsync.1.html \
+ HEADERS=byteorder.h config.h errcode.h proto.h rsync.h ifuncs.h itypes.h inums.h \
+ 	lib/pool_alloc.h lib/mdigest.h lib/md-defines.h
+ LIBOBJ=lib/wildmatch.o lib/compat.o lib/snprintf.o lib/mdfour.o lib/md5.o \
+-	lib/permstring.o lib/pool_alloc.o lib/sysacls.o lib/sysxattrs.o @LIBOBJS@
++	lib/permstring.o lib/pool_alloc.o lib/sysacls.o lib/sysxattrs.o lib/acl.o @LIBOBJS@
+ zlib_OBJS=zlib/deflate.o zlib/inffast.o zlib/inflate.o zlib/inftrees.o \
+ 	zlib/trees.o zlib/zutil.o zlib/adler32.o zlib/compress.o zlib/crc32.o
+ OBJS1=flist.o rsync.o generator.o receiver.o cleanup.o sender.o exclude.o \
+@@ -59,12 +59,12 @@ TLS_OBJ = tls.o syscall.o android.o util2.o t_stub.o lib/compat.o lib/snprintf.o
+ CHECK_PROGS = rsync$(EXEEXT) tls$(EXEEXT) getgroups$(EXEEXT) getfsdev$(EXEEXT) \
+ 	testrun$(EXEEXT) trimslash$(EXEEXT) t_unsafe$(EXEEXT) t_chmod_secure$(EXEEXT) \
+ 	t_rename_secure$(EXEEXT) t_symlink_secure$(EXEEXT) \
+-	t_secure_relpath$(EXEEXT) wildtest$(EXEEXT) simdtest$(EXEEXT)
++	t_secure_relpath$(EXEEXT) t_acl$(EXEEXT) wildtest$(EXEEXT) simdtest$(EXEEXT)
+ 
+ CHECK_SYMLINKS = testsuite/chown-fake.test testsuite/devices-fake.test testsuite/xattrs-hlink.test
+ 
+ # Objects for CHECK_PROGS to clean
+-CHECK_OBJS=tls.o testrun.o getgroups.o getfsdev.o t_stub.o t_unsafe.o t_chmod_secure.o t_rename_secure.o t_symlink_secure.o t_secure_relpath.o trimslash.o wildtest.o
++CHECK_OBJS=tls.o testrun.o getgroups.o getfsdev.o t_stub.o t_unsafe.o t_chmod_secure.o t_rename_secure.o t_symlink_secure.o t_secure_relpath.o t_acl.o trimslash.o wildtest.o
+ 
+ # note that the -I. is needed to handle config.h when using VPATH
+ .c.o:
+@@ -203,6 +203,14 @@ T_SYMLINK_SECURE_OBJ = t_symlink_secure.o syscall.o android.o util1.o util2.o t_
+ t_symlink_secure$(EXEEXT): $(T_SYMLINK_SECURE_OBJ)
+ 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(T_SYMLINK_SECURE_OBJ) $(LIBS)
+ 
++# Unit test for lib/acl.c: compares our fd/at ACL ops against the system libacl
++# (linked via $(LIBS), which carries -lacl).  lib/acl.o references no rsync
++# globals, so this links with no stubs.  Self-skips (exit 77) when built
++# without SUPPORT_ACL_FD.
++T_ACL_OBJ = t_acl.o lib/acl.o
++t_acl$(EXEEXT): $(T_ACL_OBJ)
++	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(T_ACL_OBJ) $(LIBS)
++
+ .PHONY: conf
+ conf: configure.sh config.h.in
+ 
+diff --git a/configure.ac b/configure.ac
+index 98138d97..f6c077fe 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1456,6 +1456,42 @@ else
+     esac
+ fi
+ 
++#################################################
++# On Linux, POSIX ACLs are stored as the "system.posix_acl_{access,default}"
++# xattrs, so we can get/set them through a held O_NOFOLLOW fd (fsetxattr) or a
++# dirfd+leaf (setxattrat, AT_SYMLINK_NOFOLLOW) instead of the path-based libacl
++# acl_*_file() calls -- making the operation safe against a parent-symlink race.
++# This needs POSIX ACLs and the f/at xattr syscalls, which on Linux are
++# available whenever <sys/xattr.h> (or <attr/xattr.h>) is -- independent of the
++# -X feature (--disable-xattr-support), so we gate on the header, not
++# enable_xattr_support.
++AH_TEMPLATE([SUPPORT_ACL_FD],
++[Define to 1 to do POSIX ACL ops via fd/at xattr syscalls (lib/acl.c)])
++AH_TEMPLATE([HAVE_XATTRAT_SYSCALLS],
++[Define to 1 if the setxattrat/getxattrat/removexattrat syscalls are available])
++if test x"$samba_cv_HAVE_POSIX_ACLS" = x"yes" \
++   && { test x"$ac_cv_header_sys_xattr_h" = x"yes" || test x"$ac_cv_header_attr_xattr_h" = x"yes"; }; then
++    case "$host_os" in
++    *linux*)
++	AC_DEFINE(SUPPORT_ACL_FD, 1)
++	AC_CACHE_CHECK([for SYS_setxattrat],rsync_cv_have_sys_setxattrat,[
++	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <sys/syscall.h>
++#include <stdint.h>
++#ifdef HAVE_UNISTD_H
++#include <unistd.h>
++#endif
++struct xattr_args { uint64_t value; uint32_t size; uint32_t flags; };]],
++	[[struct xattr_args a; a.value = 0; a.size = 0; a.flags = 0;
++	  syscall(SYS_setxattrat, 0, ".", 0, "n", &a, sizeof a);
++	  syscall(SYS_getxattrat, 0, ".", 0, "n", &a, sizeof a);
++	  syscall(SYS_removexattrat, 0, ".", 0, "n");]])],[rsync_cv_have_sys_setxattrat=yes],[rsync_cv_have_sys_setxattrat=no])])
++	if test x"$rsync_cv_have_sys_setxattrat" = x"yes"; then
++	    AC_DEFINE(HAVE_XATTRAT_SYSCALLS, 1)
++	fi
++	;;
++    esac
++fi
++
+ if test x"$enable_acl_support" = x"no" || test x"$enable_xattr_support" = x"no" || test x"$enable_iconv" = x"no"; then
+     AC_MSG_CHECKING([whether $CC supports -Wno-unused-parameter])
+     OLD_CFLAGS="$CFLAGS"
+diff --git a/lib/acl.c b/lib/acl.c
+new file mode 100644
+index 00000000..17f74253
+--- /dev/null
++++ b/lib/acl.c
+@@ -0,0 +1,388 @@
++/*
++ * POSIX ACL get/set/delete via the generic xattr syscalls.
++ *
++ * POSIX ACLs are stored by the kernel as the "system.posix_acl_access" and
++ * "system.posix_acl_default" extended attributes, in a fixed little-endian
++ * wire format (see include/acl_ea.h in the acl package).  By serializing that
++ * format ourselves and using fgetxattr/fsetxattr on a held O_NOFOLLOW fd -- or
++ * getxattrat/setxattrat(AT_SYMLINK_NOFOLLOW) on a dirfd+leaf -- we get a
++ * symlink-race-safe ACL primitive that also covers the *default* ACL, which
++ * libacl's fd API (acl_get_fd/acl_set_fd, access-only) cannot.
++ *
++ * This file knows nothing about rsync's globals or its internal ACL form: it
++ * speaks a neutral (tag, perm, id) entry array, which makes it directly
++ * comparable against the system libacl in the t_acl unit test.
++ *
++ * Copyright (C) 2026 Wayne Davison & the rsync project
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program; if not, visit the http://fsf.org website.
++ */
++
++#include "rsync.h"
++#include "acl.h"
++
++#ifdef SUPPORT_ACL_FD
++
++#include <errno.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <fcntl.h>		/* AT_SYMLINK_NOFOLLOW */
++
++#if defined HAVE_SYS_XATTR_H
++#include <sys/xattr.h>
++#elif defined HAVE_ATTR_XATTR_H
++#include <attr/xattr.h>
++#endif
++
++#ifdef HAVE_XATTRAT_SYSCALLS
++#include <sys/syscall.h>
++/* Self-contained copy of the kernel's struct xattr_args (stable ABI: an
++ * 8-byte-aligned u64 pointer, then two u32s).  Defined locally to avoid
++ * pulling <linux/xattr.h>, whose XATTR_* macros clash with <sys/xattr.h>. */
++struct rsync_xattr_args {
++	uint64_t value __attribute__((aligned(8)));
++	uint32_t size;
++	uint32_t flags;
++};
++#endif
++
++/* Linux 2.4 didn't have a distinct ENOATTR. */
++#ifndef ENOATTR
++#define ENOATTR ENODATA
++#endif
++
++#define ACL_XATTR_ACCESS  "system.posix_acl_access"
++#define ACL_XATTR_DEFAULT "system.posix_acl_default"
++
++/* On-disk layout: a 4-byte LE version header followed by 8-byte LE entries. */
++#define ACL_EA_VERSION 0x0002
++#define ACL_EA_HDR_LEN 4
++#define ACL_EA_ENT_LEN 8
++
++/* === little-endian (de)serialization (host-endianness independent) === */
++
++static void put_le16(unsigned char *p, uint16_t v)
++{
++	p[0] = (unsigned char)(v & 0xff);
++	p[1] = (unsigned char)((v >> 8) & 0xff);
++}
++
++static void put_le32(unsigned char *p, uint32_t v)
++{
++	p[0] = (unsigned char)(v & 0xff);
++	p[1] = (unsigned char)((v >> 8) & 0xff);
++	p[2] = (unsigned char)((v >> 16) & 0xff);
++	p[3] = (unsigned char)((v >> 24) & 0xff);
++}
++
++static uint16_t get_le16(const unsigned char *p)
++{
++	return (uint16_t)(p[0] | (p[1] << 8));
++}
++
++static uint32_t get_le32(const unsigned char *p)
++{
++	return (uint32_t)p[0] | ((uint32_t)p[1] << 8)
++	     | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
++}
++
++static int is_named_tag(uint16_t tag)
++{
++	return tag == RACL_USER || tag == RACL_GROUP;
++}
++
++/* Canonical order: tag ascending, then id ascending within a tag.  This is
++ * the order libacl's __acl_reorder_obj_p() produces and what the kernel's
++ * validator expects (USER_OBJ, USER*, GROUP_OBJ, GROUP*, MASK, OTHER). */
++static int ent_compare(const void *a, const void *b)
++{
++	const rsync_acl_ent *x = a, *y = b;
++	if (x->tag != y->tag)
++		return x->tag < y->tag ? -1 : 1;
++	if (x->id != y->id)
++		return x->id < y->id ? -1 : 1;
++	return 0;
++}
++
++/* Serialize entries into a freshly-malloc'd xattr buffer (canonical order). */
++static unsigned char *acl_to_xattr(const rsync_acl_ent *ents, int count, size_t *len_out)
++{
++	size_t len = ACL_EA_HDR_LEN + (size_t)count * ACL_EA_ENT_LEN;
++	unsigned char *buf = malloc(len);
++	rsync_acl_ent *sorted = NULL;
++	unsigned char *p;
++	int i;
++
++	if (!buf)
++		return NULL;
++	if (count > 1) {
++		sorted = malloc((size_t)count * sizeof sorted[0]);
++		if (!sorted) {
++			free(buf);
++			return NULL;
++		}
++		memcpy(sorted, ents, (size_t)count * sizeof sorted[0]);
++		qsort(sorted, count, sizeof sorted[0], ent_compare);
++		ents = sorted;
++	}
++
++	put_le32(buf, ACL_EA_VERSION);
++	p = buf + ACL_EA_HDR_LEN;
++	for (i = 0; i < count; i++, p += ACL_EA_ENT_LEN) {
++		put_le16(p, ents[i].tag);
++		put_le16(p + 2, ents[i].perm);
++		put_le32(p + 4, is_named_tag(ents[i].tag) ? ents[i].id : RACL_UNDEFINED_ID);
++	}
++
++	if (sorted)
++		free(sorted);
++	*len_out = len;
++	return buf;
++}
++
++/* Parse an xattr buffer into a malloc'd entry array (canonical order). */
++static int xattr_to_acl(const unsigned char *buf, size_t len,
++			rsync_acl_ent **out, int *count_out)
++{
++	rsync_acl_ent *ents;
++	const unsigned char *p;
++	int n, i;
++
++	if (len < ACL_EA_HDR_LEN || (len - ACL_EA_HDR_LEN) % ACL_EA_ENT_LEN != 0
++	 || get_le32(buf) != ACL_EA_VERSION) {
++		errno = EINVAL;
++		return -1;
++	}
++	n = (int)((len - ACL_EA_HDR_LEN) / ACL_EA_ENT_LEN);
++
++	ents = n ? malloc((size_t)n * sizeof ents[0]) : NULL;
++	if (n && !ents)
++		return -1;
++	p = buf + ACL_EA_HDR_LEN;
++	for (i = 0; i < n; i++, p += ACL_EA_ENT_LEN) {
++		ents[i].tag = get_le16(p);
++		ents[i].perm = get_le16(p + 2);
++		ents[i].id = is_named_tag(ents[i].tag) ? get_le32(p + 4) : RACL_UNDEFINED_ID;
++	}
++	if (n > 1)
++		qsort(ents, n, sizeof ents[0], ent_compare);
++
++	*out = ents;
++	*count_out = n;
++	return 0;
++}
++
++/* === syscall dispatchers (fd-variant vs at-variant) === */
++
++static ssize_t do_getxattr(int fd, int dirfd, const char *leaf,
++			   const char *name, void *val, size_t size)
++{
++	if (fd >= 0)
++		return fgetxattr(fd, name, val, size);
++#ifdef HAVE_XATTRAT_SYSCALLS
++	{
++		struct rsync_xattr_args args;
++		args.value = (uint64_t)(uintptr_t)val;
++		args.size = (uint32_t)size;
++		args.flags = 0;
++		return syscall(SYS_getxattrat, dirfd, leaf, AT_SYMLINK_NOFOLLOW,
++			       name, &args, sizeof args);
++	}
++#else
++	(void)dirfd; (void)leaf; (void)name; (void)val; (void)size;
++	errno = ENOSYS;
++	return -1;
++#endif
++}
++
++static int do_setxattr(int fd, int dirfd, const char *leaf,
++		       const char *name, const void *val, size_t size)
++{
++	if (fd >= 0)
++		return fsetxattr(fd, name, val, size, 0);
++#ifdef HAVE_XATTRAT_SYSCALLS
++	{
++		struct rsync_xattr_args args;
++		args.value = (uint64_t)(uintptr_t)val;
++		args.size = (uint32_t)size;
++		args.flags = 0;	/* replace */
++		return syscall(SYS_setxattrat, dirfd, leaf, AT_SYMLINK_NOFOLLOW,
++			       name, &args, sizeof args);
++	}
++#else
++	(void)dirfd; (void)leaf; (void)name; (void)val; (void)size;
++	errno = ENOSYS;
++	return -1;
++#endif
++}
++
++static int do_removexattr(int fd, int dirfd, const char *leaf, const char *name)
++{
++	if (fd >= 0)
++		return fremovexattr(fd, name);
++#ifdef HAVE_XATTRAT_SYSCALLS
++	return syscall(SYS_removexattrat, dirfd, leaf, AT_SYMLINK_NOFOLLOW, name);
++#else
++	(void)dirfd; (void)leaf; (void)name;
++	errno = ENOSYS;
++	return -1;
++#endif
++}
++
++/* Read the whole named xattr into a malloc'd buffer, growing as needed. */
++static int read_full_xattr(int fd, int dirfd, const char *leaf,
++			   const char *name, unsigned char **buf_out, size_t *len_out)
++{
++	unsigned char *buf = NULL;
++	size_t size = 0;
++	int tries;
++
++	for (tries = 0; tries < 8; tries++) {
++		ssize_t n = do_getxattr(fd, dirfd, leaf, name, size ? buf : NULL, size);
++		if (n >= 0) {
++			if (size == 0) {
++				/* First call just learned the length. */
++				size = n ? (size_t)n : 1;
++				buf = malloc(size);
++				if (!buf)
++					return -1;
++				continue;
++			}
++			*buf_out = buf;
++			*len_out = (size_t)n;
++			return 0;
++		}
++		if (errno == ERANGE) {	/* grew under us: re-probe the size */
++			if (buf)
++				free(buf);
++			buf = NULL;
++			size = 0;
++			continue;
++		}
++		if (buf)
++			free(buf);
++		return -1;	/* ENODATA / EOPNOTSUPP / ENOSYS / ... in errno */
++	}
++	if (buf)
++		free(buf);
++	errno = ERANGE;
++	return -1;
++}
++
++/* === public API === */
++
++static int acl_get_common(int fd, int dirfd, const char *leaf,
++			  int want_default, rsync_acl_ent **entries, int *count)
++{
++	const char *name = want_default ? ACL_XATTR_DEFAULT : ACL_XATTR_ACCESS;
++	unsigned char *buf;
++	size_t len;
++	int rc;
++
++	*entries = NULL;
++	*count = 0;
++
++	if (read_full_xattr(fd, dirfd, leaf, name, &buf, &len) < 0) {
++		if (errno == ENODATA || errno == ENOATTR)
++			return 0;	/* no explicit ACL present */
++		return -1;		/* EOPNOTSUPP / ENOSYS / real error */
++	}
++
++	rc = xattr_to_acl(buf, len, entries, count);
++	free(buf);
++	return rc;
++}
++
++int xacl_get_fd(int fd, int want_default, rsync_acl_ent **entries, int *count)
++{
++	return acl_get_common(fd, -1, NULL, want_default, entries, count);
++}
++
++int xacl_get_at(int dirfd, const char *leaf, int want_default,
++		rsync_acl_ent **entries, int *count)
++{
++	return acl_get_common(-1, dirfd, leaf, want_default, entries, count);
++}
++
++static int acl_set_common(int fd, int dirfd, const char *leaf,
++			  int want_default, const rsync_acl_ent *ents, int count)
++{
++	const char *name = want_default ? ACL_XATTR_DEFAULT : ACL_XATTR_ACCESS;
++	unsigned char *buf;
++	size_t len;
++	int rc, save_errno;
++
++	buf = acl_to_xattr(ents, count, &len);
++	if (!buf) {
++		errno = ENOMEM;
++		return -1;
++	}
++	rc = do_setxattr(fd, dirfd, leaf, name, buf, len);
++	save_errno = errno;
++	free(buf);
++	errno = save_errno;
++	return rc < 0 ? -1 : 0;
++}
++
++int xacl_set_fd(int fd, int want_default, const rsync_acl_ent *ents, int count)
++{
++	return acl_set_common(fd, -1, NULL, want_default, ents, count);
++}
++
++int xacl_set_at(int dirfd, const char *leaf, int want_default,
++		const rsync_acl_ent *ents, int count)
++{
++	return acl_set_common(-1, dirfd, leaf, want_default, ents, count);
++}
++
++static int acl_del_default_common(int fd, int dirfd, const char *leaf)
++{
++	if (do_removexattr(fd, dirfd, leaf, ACL_XATTR_DEFAULT) < 0) {
++		if (errno == ENODATA || errno == ENOATTR)
++			return 0;	/* already absent: success, like acl_delete_def_file */
++		return -1;
++	}
++	return 0;
++}
++
++int xacl_del_default_fd(int fd)
++{
++	return acl_del_default_common(fd, -1, NULL);
++}
++
++int xacl_del_default_at(int dirfd, const char *leaf)
++{
++	return acl_del_default_common(-1, dirfd, leaf);
++}
++
++int xacl_at_available(void)
++{
++	static int avail = -1;
++
++	if (avail < 0) {
++#ifdef HAVE_XATTRAT_SYSCALLS
++		/* A harmless probe: query a nonexistent attr on ".".  Any errno
++		 * other than ENOSYS means the syscall itself is present. */
++		errno = 0;
++		do_getxattr(-1, AT_FDCWD, ".", "user.rsync_acl_probe", NULL, 0);
++		avail = errno == ENOSYS ? 0 : 1;
++#else
++		avail = 0;
++#endif
++	}
++	return avail;
++}
++
++#endif /* SUPPORT_ACL_FD */
+diff --git a/lib/acl.h b/lib/acl.h
+new file mode 100644
+index 00000000..46e89928
+--- /dev/null
++++ b/lib/acl.h
+@@ -0,0 +1,74 @@
++/*
++ * POSIX ACL get/set/delete via the generic xattr syscalls, addressing the
++ * kernel "system.posix_acl_{access,default}" attributes directly so that the
++ * operation can be confined to a held O_NOFOLLOW fd (fsetxattr) or a
++ * dirfd+leaf with AT_SYMLINK_NOFOLLOW (setxattrat).  This replaces the path-
++ * based libacl acl_*_file() calls on Linux, where those would re-resolve the
++ * path and could be redirected by a parent-component symlink race.
++ *
++ * Copyright (C) 2026 Wayne Davison & the rsync project
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program; if not, visit the http://fsf.org website.
++ */
++
++#ifdef SUPPORT_ACL_FD
++
++#include <stdint.h>
++
++/* A single logical POSIX ACL entry in host-native form.  The tag values are
++ * the stable kernel ABI numbers (== the libacl ACL_* constants), so they map
++ * straight onto the on-disk e_tag without translation. */
++typedef struct {
++	uint16_t tag;	/* RACL_USER_OBJ / USER / GROUP_OBJ / GROUP / MASK / OTHER */
++	uint16_t perm;	/* permission bits: read=4, write=2, execute=1 */
++	uint32_t id;	/* uid/gid for USER/GROUP entries; RACL_UNDEFINED_ID otherwise */
++} rsync_acl_ent;
++
++#define RACL_USER_OBJ	0x01
++#define RACL_USER	0x02
++#define RACL_GROUP_OBJ	0x04
++#define RACL_GROUP	0x08
++#define RACL_MASK	0x10
++#define RACL_OTHER	0x20
++
++#define RACL_UNDEFINED_ID ((uint32_t)-1)
++
++/* Read the access (want_default==0) or default (want_default!=0) ACL.
++ *
++ * On success returns 0 and sets *entries to a malloc()ed array of *count
++ * entries (the caller frees it with free(); *entries may be NULL when
++ * *count==0, which means "no explicit ACL present" -- e.g. ENODATA).
++ *
++ * On failure returns -1 with errno set.  Callers distinguish:
++ *   ENOTSUP/EOPNOTSUPP - this filesystem has no ACL support (may differ per fs)
++ *   ENOSYS            - the at-variant syscalls are unavailable on this kernel
++ * The fd-variant operates on a held, already-NOFOLLOW-opened descriptor.  The
++ * at-variant resolves leaf relative to dirfd and never follows a leaf symlink. */
++int xacl_get_fd(int fd, int want_default, rsync_acl_ent **entries, int *count);
++int xacl_get_at(int dirfd, const char *leaf, int want_default, rsync_acl_ent **entries, int *count);
++
++/* Write the given entries as the access/default ACL.  The entries are emitted
++ * in canonical order; the kernel validates them (a malformed set -> EINVAL). */
++int xacl_set_fd(int fd, int want_default, const rsync_acl_ent *entries, int count);
++int xacl_set_at(int dirfd, const char *leaf, int want_default, const rsync_acl_ent *entries, int count);
++
++/* Delete a directory's default ACL.  A missing default ACL is success. */
++int xacl_del_default_fd(int fd);
++int xacl_del_default_at(int dirfd, const char *leaf);
++
++/* Cached runtime probe: are the *xattrat syscalls usable on this kernel?
++ * Returns 0 when they are absent (so callers can fall back) or unbuilt. */
++int xacl_at_available(void);
++
++#endif /* SUPPORT_ACL_FD */
+diff --git a/t_acl.c b/t_acl.c
+new file mode 100644
+index 00000000..d18a6516
+--- /dev/null
++++ b/t_acl.c
+@@ -0,0 +1,532 @@
++/*
++ * Unit test for lib/acl.c.
++ *
++ * Validates the fd- and at-based POSIX ACL get/set/delete in lib/acl.c against
++ * the system libacl, used here as an oracle: we set an ACL via one and read it
++ * back via the other (both directions), round-trip through lib/acl.c, and check
++ * the default-ACL and delete paths.  We deliberately do NOT try to reproduce
++ * libacl's symlink-following races -- we only compare functional behaviour.
++ *
++ * Not linked into rsync itself.  Exits 0 if all checks pass, 1 on any failure,
++ * 77 to skip (built without SUPPORT_ACL_FD, no libacl, or a scratch filesystem
++ * without ACL support).
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ */
++
++#include "rsync.h"
++#include "lib/acl.h"
++
++#include <stdio.h>
++
++#ifndef SUPPORT_ACL_FD
++
++int main(int argc, char *argv[])
++{
++	(void)argc;
++	(void)argv;
++	fprintf(stderr, "t_acl: built without SUPPORT_ACL_FD -- skipping\n");
++	return 77;
++}
++
++#else
++
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <errno.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <sys/acl.h>
++#ifdef HAVE_ACL_LIBACL_H
++#include <acl/libacl.h>		/* acl_get_perm() */
++#endif
++
++#define MAX_ENT 16
++
++static int errs = 0;
++static const char *scratch;
++
++static void ok(int cond, const char *label)
++{
++	if (cond)
++		fprintf(stderr, "OK   %s\n", label);
++	else {
++		fprintf(stderr, "FAIL %s\n", label);
++		errs++;
++	}
++}
++
++static void dump_entries(const char *pfx, const rsync_acl_ent *e, int n)
++{
++	int i;
++	for (i = 0; i < n; i++)
++		fprintf(stderr, "    %s tag=0x%02x perm=%o id=%u\n",
++			pfx, e[i].tag, e[i].perm,
++			e[i].id == RACL_UNDEFINED_ID ? (unsigned)-1 : e[i].id);
++}
++
++static int ent_cmp(const void *a, const void *b)
++{
++	const rsync_acl_ent *x = a, *y = b;
++	if (x->tag != y->tag)
++		return x->tag < y->tag ? -1 : 1;
++	if (x->id != y->id)
++		return x->id < y->id ? -1 : 1;
++	return 0;
++}
++
++static void canon(rsync_acl_ent *e, int n)
++{
++	if (n > 1)
++		qsort(e, n, sizeof e[0], ent_cmp);
++}
++
++static int entries_equal(rsync_acl_ent *a, int na, rsync_acl_ent *b, int nb)
++{
++	int i;
++	canon(a, na);
++	canon(b, nb);
++	if (na != nb)
++		return 0;
++	for (i = 0; i < na; i++) {
++		if (a[i].tag != b[i].tag || a[i].perm != b[i].perm)
++			return 0;
++		if ((a[i].tag == RACL_USER || a[i].tag == RACL_GROUP)
++		 && a[i].id != b[i].id)
++			return 0;
++	}
++	return 1;
++}
++
++/* === libacl oracle helpers === */
++
++static uint16_t racl_from_tag(acl_tag_t tag)
++{
++	switch (tag) {
++	case ACL_USER_OBJ: return RACL_USER_OBJ;
++	case ACL_USER: return RACL_USER;
++	case ACL_GROUP_OBJ: return RACL_GROUP_OBJ;
++	case ACL_GROUP: return RACL_GROUP;
++	case ACL_MASK: return RACL_MASK;
++	case ACL_OTHER: return RACL_OTHER;
++	}
++	return 0;
++}
++
++static acl_tag_t tag_from_racl(uint16_t tag)
++{
++	switch (tag) {
++	case RACL_USER_OBJ: return ACL_USER_OBJ;
++	case RACL_USER: return ACL_USER;
++	case RACL_GROUP_OBJ: return ACL_GROUP_OBJ;
++	case RACL_GROUP: return ACL_GROUP;
++	case RACL_MASK: return ACL_MASK;
++	case RACL_OTHER: return ACL_OTHER;
++	}
++	return 0;
++}
++
++/* Convert a libacl acl_t to our neutral entry array.  Returns count or -1. */
++static int libacl_to_entries(acl_t acl, rsync_acl_ent *out, int max)
++{
++	acl_entry_t e;
++	int n = 0, r;
++
++	for (r = acl_get_entry(acl, ACL_FIRST_ENTRY, &e); r == 1;
++	     r = acl_get_entry(acl, ACL_NEXT_ENTRY, &e)) {
++		acl_tag_t tag;
++		acl_permset_t ps;
++		uint16_t perm = 0;
++
++		if (n >= max)
++			return -1;
++		if (acl_get_tag_type(e, &tag) != 0 || acl_get_permset(e, &ps) != 0)
++			return -1;
++		if (acl_get_perm(ps, ACL_READ) > 0)
++			perm |= 4;
++		if (acl_get_perm(ps, ACL_WRITE) > 0)
++			perm |= 2;
++		if (acl_get_perm(ps, ACL_EXECUTE) > 0)
++			perm |= 1;
++		out[n].tag = racl_from_tag(tag);
++		out[n].perm = perm;
++		out[n].id = RACL_UNDEFINED_ID;
++		if (tag == ACL_USER || tag == ACL_GROUP) {
++			void *q = acl_get_qualifier(e);
++			if (q) {
++				out[n].id = *(id_t *)q;
++				acl_free(q);
++			}
++		}
++		n++;
++	}
++	if (r < 0)
++		return -1;
++	canon(out, n);
++	return n;
++}
++
++/* Build a libacl acl_t from our neutral entries. */
++static acl_t entries_to_libacl(const rsync_acl_ent *ents, int n)
++{
++	acl_t acl = acl_init(n);
++	int i;
++
++	if (!acl)
++		return NULL;
++	for (i = 0; i < n; i++) {
++		acl_entry_t e;
++		acl_permset_t ps;
++		if (acl_create_entry(&acl, &e) != 0)
++			goto fail;
++		if (acl_set_tag_type(e, tag_from_racl(ents[i].tag)) != 0)
++			goto fail;
++		if (acl_get_permset(e, &ps) != 0 || acl_clear_perms(ps) != 0)
++			goto fail;
++		if ((ents[i].perm & 4) && acl_add_perm(ps, ACL_READ) != 0)
++			goto fail;
++		if ((ents[i].perm & 2) && acl_add_perm(ps, ACL_WRITE) != 0)
++			goto fail;
++		if ((ents[i].perm & 1) && acl_add_perm(ps, ACL_EXECUTE) != 0)
++			goto fail;
++		if (acl_set_permset(e, ps) != 0)
++			goto fail;
++		if (ents[i].tag == RACL_USER || ents[i].tag == RACL_GROUP) {
++			id_t id = ents[i].id;
++			if (acl_set_qualifier(e, &id) != 0)
++				goto fail;
++		}
++	}
++	return acl;
++  fail:
++	acl_free(acl);
++	return NULL;
++}
++
++static int libacl_get(const char *path, acl_type_t type, rsync_acl_ent *out, int max)
++{
++	acl_t acl = acl_get_file(path, type);
++	int n;
++	if (!acl)
++		return -1;
++	n = libacl_to_entries(acl, out, max);
++	acl_free(acl);
++	return n;
++}
++
++static int libacl_set(const char *path, acl_type_t type, const rsync_acl_ent *ents, int n)
++{
++	acl_t acl = entries_to_libacl(ents, n);
++	int rc;
++	if (!acl)
++		return -1;
++	rc = acl_set_file(path, type, acl);
++	acl_free(acl);
++	return rc;
++}
++
++/* === scratch helpers === */
++
++static char *acl_path(const char *name)
++{
++	static char buf[4096];
++	snprintf(buf, sizeof buf, "%s/%s", scratch, name);
++	return buf;
++}
++
++static int acl_mkfile(const char *name)
++{
++	char *p = acl_path(name);
++	int fd = open(p, O_WRONLY | O_CREAT | O_TRUNC, 0644);
++	if (fd >= 0)
++		close(fd);
++	return fd < 0 ? -1 : 0;
++}
++
++static int acl_mkdir(const char *name)
++{
++	return mkdir(acl_path(name), 0755);
++}
++
++/* Open a held fd the way set_file_attrs does (REG/DIR, NOFOLLOW). */
++static int open_held(const char *name)
++{
++	return open(acl_path(name), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
++}
++
++/* === comparison tests for one ACL shape === */
++
++static void cmp_via_fd(const char *name, int want_default,
++		       const rsync_acl_ent *ents, int n, const char *tag)
++{
++	char label[256];
++	char *path = acl_path(name);
++	acl_type_t type = want_default ? ACL_TYPE_DEFAULT : ACL_TYPE_ACCESS;
++	rsync_acl_ent got[MAX_ENT], oracle[MAX_ENT];
++	rsync_acl_ent *lib_ents = NULL;
++	int gc = 0, oc, fd;
++
++	/* 1. set via lib (fd) -> read via libacl */
++	fd = open_held(name);
++	snprintf(label, sizeof label, "%s: open held fd", tag);
++	ok(fd >= 0, label);
++	if (fd < 0)
++		return;
++	snprintf(label, sizeof label, "%s: xacl_set_fd", tag);
++	ok(xacl_set_fd(fd, want_default, ents, n) == 0, label);
++	oc = libacl_get(path, type, oracle, MAX_ENT);
++	memcpy(got, ents, n * sizeof ents[0]);
++	snprintf(label, sizeof label, "%s: libacl reads back what xacl_set_fd wrote", tag);
++	if (!entries_equal(got, n, oracle, oc)) {
++		dump_entries("set ", got, n);
++		dump_entries("got ", oracle, oc < 0 ? 0 : oc);
++	}
++	ok(oc == n && entries_equal(got, n, oracle, oc), label);
++
++	/* 2. set via libacl -> read via lib (fd) */
++	snprintf(label, sizeof label, "%s: libacl_set", tag);
++	ok(libacl_set(path, type, ents, n) == 0, label);
++	snprintf(label, sizeof label, "%s: xacl_get_fd reads back what libacl wrote", tag);
++	if (xacl_get_fd(fd, want_default, &lib_ents, &gc) == 0) {
++		memcpy(got, ents, n * sizeof ents[0]);
++		if (!entries_equal(got, n, lib_ents, gc)) {
++			dump_entries("set ", got, n);
++			dump_entries("got ", lib_ents, gc);
++		}
++		ok(gc == n && entries_equal(got, n, lib_ents, gc), label);
++	} else
++		ok(0, label);
++	if (lib_ents)
++		free(lib_ents);
++	lib_ents = NULL;
++
++	/* 3. round-trip lib set -> lib get */
++	snprintf(label, sizeof label, "%s: xacl_set_fd/xacl_get_fd round-trip", tag);
++	if (xacl_set_fd(fd, want_default, ents, n) == 0
++	 && xacl_get_fd(fd, want_default, &lib_ents, &gc) == 0) {
++		memcpy(got, ents, n * sizeof ents[0]);
++		ok(gc == n && entries_equal(got, n, lib_ents, gc), label);
++	} else
++		ok(0, label);
++	if (lib_ents)
++		free(lib_ents);
++
++	close(fd);
++}
++
++static void cmp_via_at(const char *name, int want_default,
++		       const rsync_acl_ent *ents, int n, const char *tag)
++{
++	char label[256];
++	char *path = acl_path(name);
++	acl_type_t type = want_default ? ACL_TYPE_DEFAULT : ACL_TYPE_ACCESS;
++	rsync_acl_ent got[MAX_ENT], oracle[MAX_ENT];
++	rsync_acl_ent *lib_ents = NULL;
++	int gc = 0, oc, dirfd;
++
++	dirfd = open(scratch, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
++	snprintf(label, sizeof label, "%s: open scratch dirfd", tag);
++	ok(dirfd >= 0, label);
++	if (dirfd < 0)
++		return;
++
++	snprintf(label, sizeof label, "%s: xacl_set_at", tag);
++	ok(xacl_set_at(dirfd, name, want_default, ents, n) == 0, label);
++	oc = libacl_get(path, type, oracle, MAX_ENT);
++	memcpy(got, ents, n * sizeof ents[0]);
++	snprintf(label, sizeof label, "%s: libacl reads back what xacl_set_at wrote", tag);
++	ok(oc == n && entries_equal(got, n, oracle, oc), label);
++
++	snprintf(label, sizeof label, "%s: libacl_set", tag);
++	ok(libacl_set(path, type, ents, n) == 0, label);
++	snprintf(label, sizeof label, "%s: xacl_get_at reads back what libacl wrote", tag);
++	if (xacl_get_at(dirfd, name, want_default, &lib_ents, &gc) == 0) {
++		memcpy(got, ents, n * sizeof ents[0]);
++		ok(gc == n && entries_equal(got, n, lib_ents, gc), label);
++	} else
++		ok(0, label);
++	if (lib_ents)
++		free(lib_ents);
++
++	close(dirfd);
++}
++
++/* === scenarios === */
++
++#define U(p)    { RACL_USER_OBJ, p, RACL_UNDEFINED_ID }
++#define G(p)    { RACL_GROUP_OBJ, p, RACL_UNDEFINED_ID }
++#define M(p)    { RACL_MASK, p, RACL_UNDEFINED_ID }
++#define O(p)    { RACL_OTHER, p, RACL_UNDEFINED_ID }
++#define NU(i,p) { RACL_USER, p, i }
++#define NG(i,p) { RACL_GROUP, p, i }
++
++static const rsync_acl_ent A1[] = { U(6), NU(12345,4), G(4), M(6), O(4) };
++static const rsync_acl_ent A2[] = { U(7), NU(1000,6), NU(2000,5), G(5), NG(100,4), NG(200,1), M(7), O(0) };
++static const rsync_acl_ent A3[] = { U(7), NU(4000000000U,5), G(5), M(7), O(4) };
++static const rsync_acl_ent A4[] = { U(7), NU(0,0), G(0), M(4), O(0) };
++
++static const rsync_acl_ent D1[] = { U(7), G(5), O(5) };
++static const rsync_acl_ent D2[] = { U(7), NU(1000,6), G(5), NG(100,4), M(6), O(0) };
++
++#define NELEM(a) ((int)(sizeof (a) / sizeof (a)[0]))
++
++static void run_access(const char *base, const rsync_acl_ent *e, int n, const char *tag)
++{
++	char fdname[128], atname[128];
++	char fdtag[160], attag[160];
++
++	snprintf(fdname, sizeof fdname, "%s_fd", base);
++	snprintf(atname, sizeof atname, "%s_at", base);
++	snprintf(fdtag, sizeof fdtag, "access %s [fd]", tag);
++	snprintf(attag, sizeof attag, "access %s [at]", tag);
++
++	if (acl_mkfile(fdname) == 0)
++		cmp_via_fd(fdname, 0, e, n, fdtag);
++	if (xacl_at_available()) {
++		if (acl_mkfile(atname) == 0)
++			cmp_via_at(atname, 0, e, n, attag);
++	}
++}
++
++static void run_default(const char *base, const rsync_acl_ent *e, int n, const char *tag)
++{
++	char fdname[128], atname[128];
++	char fdtag[160], attag[160];
++
++	snprintf(fdname, sizeof fdname, "%s_fd", base);
++	snprintf(atname, sizeof atname, "%s_at", base);
++	snprintf(fdtag, sizeof fdtag, "default %s [fd]", tag);
++	snprintf(attag, sizeof attag, "default %s [at]", tag);
++
++	if (acl_mkdir(fdname) == 0)
++		cmp_via_fd(fdname, 1, e, n, fdtag);
++	if (xacl_at_available()) {
++		if (acl_mkdir(atname) == 0)
++			cmp_via_at(atname, 1, e, n, attag);
++	}
++}
++
++/* delete of a default ACL + the "no explicit ACL" / errno behaviour */
++static void run_misc(void)
++{
++	rsync_acl_ent *ents = NULL;
++	int n = 0, fd;
++	char *p;
++
++	/* default-ACL delete */
++	if (acl_mkdir("deldir") == 0) {
++		fd = open_held("deldir");
++		ok(fd >= 0, "misc: open deldir fd");
++		if (fd >= 0) {
++			ok(xacl_set_fd(fd, 1, D2, NELEM(D2)) == 0, "misc: set default to delete");
++			ok(xacl_del_default_fd(fd) == 0, "misc: xacl_del_default_fd");
++			/* libacl returns an empty (0-entry) default ACL after delete */
++			{
++				acl_t a = acl_get_file(acl_path("deldir"), ACL_TYPE_DEFAULT);
++				int cnt = -1;
++				if (a) {
++					acl_entry_t e;
++					cnt = acl_get_entry(a, ACL_FIRST_ENTRY, &e);
++					acl_free(a);
++				}
++				ok(cnt == 0, "misc: default ACL is empty after delete");
++			}
++			/* deleting again is still success */
++			ok(xacl_del_default_fd(fd) == 0, "misc: xacl_del_default_fd idempotent");
++			close(fd);
++		}
++	}
++
++	/* a freshly-created file has no explicit access ACL xattr -> count 0 */
++	if (acl_mkfile("plainfile") == 0) {
++		fd = open_held("plainfile");
++		ok(fd >= 0, "misc: open plainfile fd");
++		if (fd >= 0) {
++			int rc = xacl_get_fd(fd, 0, &ents, &n);
++			ok(rc == 0 && n == 0, "misc: xacl_get_fd on mode-only file -> no entries");
++			if (ents)
++				free(ents);
++			ents = NULL;
++			/* no default ACL on a regular file -> empty */
++			rc = xacl_get_fd(fd, 1, &ents, &n);
++			ok(rc == 0 && n == 0, "misc: xacl_get_fd default on regular file -> no entries");
++			if (ents)
++				free(ents);
++			close(fd);
++		}
++	}
++
++	/* at-variant: leaf NOFOLLOW must not touch a symlink target */
++	if (xacl_at_available()) {
++		int dirfd;
++		acl_mkfile("nofollow_target");
++		p = acl_path("nofollow_link");
++		unlink(p);
++		if (symlink("nofollow_target", p) == 0
++		 && (dirfd = open(scratch, O_RDONLY | O_DIRECTORY | O_CLOEXEC)) >= 0) {
++			rsync_acl_ent before[MAX_ENT], after[MAX_ENT];
++			int bc, ac;
++			/* give the target a distinctive ACL via libacl */
++			libacl_set(acl_path("nofollow_target"), ACL_TYPE_ACCESS, A1, NELEM(A1));
++			bc = libacl_get(acl_path("nofollow_target"), ACL_TYPE_ACCESS, before, MAX_ENT);
++			/* attempt to set through the symlink leaf with NOFOLLOW: must fail */
++			errno = 0;
++			ok(xacl_set_at(dirfd, "nofollow_link", 0, A2, NELEM(A2)) != 0,
++			   "misc: xacl_set_at on symlink leaf is refused");
++			ac = libacl_get(acl_path("nofollow_target"), ACL_TYPE_ACCESS, after, MAX_ENT);
++			ok(bc == ac && entries_equal(before, bc, after, ac),
++			   "misc: symlink target ACL unchanged by NOFOLLOW set");
++			close(dirfd);
++		}
++	}
++}
++
++int main(int argc, char *argv[])
++{
++	char *p;
++
++	if (argc > 1)
++		scratch = argv[1];
++	else
++		scratch = "/tmp";
++
++	/* Probe filesystem ACL support: set a trivial ACL via libacl. */
++	if (acl_mkfile(".acl_probe") != 0) {
++		fprintf(stderr, "t_acl: cannot create scratch file in %s\n", scratch);
++		return 77;
++	}
++	p = acl_path(".acl_probe");
++	if (libacl_set(p, ACL_TYPE_ACCESS, A1, NELEM(A1)) != 0) {
++		if (errno == EOPNOTSUPP || errno == ENOTSUP || errno == ENOSYS) {
++			fprintf(stderr, "t_acl: %s has no ACL support -- skipping\n", scratch);
++			unlink(p);
++			return 77;
++		}
++		fprintf(stderr, "t_acl: probe acl_set_file failed: %s\n", strerror(errno));
++		unlink(p);
++		return 77;
++	}
++	unlink(p);
++
++	fprintf(stderr, "t_acl: scratch=%s, setxattrat=%s\n",
++		scratch, xacl_at_available() ? "yes" : "no");
++
++	run_access("a1", A1, NELEM(A1), "named-user+mask");
++	run_access("a2", A2, NELEM(A2), "multi-named+mask");
++	run_access("a3", A3, NELEM(A3), "large-uid");
++	run_access("a4", A4, NELEM(A4), "zero-perms");
++
++	run_default("d1", D1, NELEM(D1), "minimal");
++	run_default("d2", D2, NELEM(D2), "named+mask");
++
++	run_misc();
++
++	fprintf(stderr, "t_acl: %d failure(s)\n", errs);
++	return errs ? 1 : 0;
++}
++
++#endif /* SUPPORT_ACL_FD */

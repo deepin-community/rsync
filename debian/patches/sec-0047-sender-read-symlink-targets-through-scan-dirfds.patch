@@ -1,0 +1,74 @@
+From 806a9364dc90ac5f64a7632794a2d7453377da96 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:08 +0800
+Subject: [PATCH 047/200] 45dd1495
+
+---
+ flist.c   | 12 +++++++++++-
+ syscall.c | 24 ++++++++++++++++++++++++
+ 2 files changed, 35 insertions(+), 1 deletion(-)
+
+diff --git a/flist.c b/flist.c
+index 9da13ff1..98bbc67f 100644
+--- a/flist.c
++++ b/flist.c
+@@ -243,13 +243,23 @@ static int scan_link_stat(const char *path, STRUCT_STAT *stp, int follow_dirlink
+ 	return link_stat(path, stp, follow_dirlinks);
+ }
+ 
++static int scan_readlink(const char *path, char *linkbuf, size_t bufsiz)
++{
++	if (scan_dirfd >= 0 && am_root >= 0
++	 && strncmp(path, scan_dir_prefix, scan_dir_prefix_len) == 0
++	 && path[scan_dir_prefix_len] == '/'
++	 && strchr(path + scan_dir_prefix_len + 1, '/') == NULL)
++		return do_readlink_atfd(scan_dirfd, path + scan_dir_prefix_len + 1, linkbuf, bufsiz);
++	return do_readlink(path, linkbuf, bufsiz);
++}
++
+ static int readlink_stat(const char *path, STRUCT_STAT *stp, char *linkbuf)
+ {
+ #ifdef SUPPORT_LINKS
+ 	if (scan_link_stat(path, stp, copy_dirlinks) < 0)
+ 		return -1;
+ 	if (S_ISLNK(stp->st_mode)) {
+-		int llen = do_readlink(path, linkbuf, MAXPATHLEN - 1);
++		int llen = scan_readlink(path, linkbuf, MAXPATHLEN - 1);
+ 		if (llen < 0)
+ 			return -1;
+ 		linkbuf[llen] = '\0';
+diff --git a/syscall.c b/syscall.c
+index c4e6c82d..005ce1b9 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -305,6 +305,30 @@ ssize_t do_readlink(const char *path, char *buf, size_t bufsiz)
+ 	return readlink(path, buf, bufsiz);
+ }
+ #endif
++
++ssize_t do_readlink_atfd(int dfd, const char *name, char *buf, size_t bufsiz)
++{
++#ifdef AT_FDCWD
++# if defined NO_SYMLINK_XATTRS || defined NO_SYMLINK_USER_XATTRS
++	if (am_root < 0) {
++		int fd = openat(dfd, name, O_RDONLY | O_NOFOLLOW);
++		if (fd >= 0) {
++			int len = read(fd, buf, bufsiz);
++			close(fd);
++			return len;
++		}
++		if (!NOFOLLOW_HIT_SYMLINK(errno))
++			return -1;
++		if (!am_sender)
++			return 0;
++	}
++# endif
++	return readlinkat(dfd, name, buf, bufsiz);
++#else
++	(void)dfd;
++	return do_readlink(name, buf, bufsiz);
++#endif
++}
+ #endif
+ 
+ #if defined HAVE_LINK || defined HAVE_LINKAT

@@ -1,0 +1,40 @@
+From 1f01f2c0d0e59be4ea2527b05c045c0334ebfd50 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:14 +0800
+Subject: [PATCH 198/200] f33d42a3
+
+---
+ options.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/options.c b/options.c
+index dce4ddd2..2dcb5195 100644
+--- a/options.c
++++ b/options.c
+@@ -2705,7 +2705,16 @@ char *safe_arg(const char *opt, const char *arg)
+ 			escape_leading_tilde = 1;
+ 		}
+ 		for (f = arg; *f; f++) {
+-			if (strchr(escapes, *f))
++			if (*f == '\\') {
++				/* Mirror the writer below: in filename mode a backslash
++				 * before a wildcard is not doubled, so don't reserve a slot
++				 * for it.  The "f[1] &&" also avoids the strchr(WILD_CHARS,
++				 * '\0') footgun (which matches the terminator) on a trailing
++				 * backslash -- otherwise the counter and writer disagree and
++				 * an uninitialized heap byte leaks into the result. */
++				if (!is_filename_arg || !(f[1] && strchr(WILD_CHARS, f[1])))
++					extras++;
++			} else if (strchr(escapes, *f))
+ 				extras++;
+ 		}
+ 	}
+@@ -2730,7 +2739,7 @@ char *safe_arg(const char *opt, const char *arg)
+ 			*t++ = '\\';
+ 		while (*f) {
+ 			if (*f == '\\') {
+-				if (!is_filename_arg || !strchr(WILD_CHARS, f[1]))
++				if (!is_filename_arg || !(f[1] && strchr(WILD_CHARS, f[1])))
+ 					*t++ = '\\';
+ 			} else if (strchr(escapes, *f))
+ 				*t++ = '\\';

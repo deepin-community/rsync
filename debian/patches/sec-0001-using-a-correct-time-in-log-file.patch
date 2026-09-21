@@ -1,0 +1,27 @@
+From 86213aa5c3adac8d8e1de7bdafa58d8d873691fa Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:06 +0800
+Subject: [PATCH 001/200] c966f386
+
+---
+ util1.c | 7 +------
+ 1 file changed, 1 insertion(+), 6 deletions(-)
+
+diff --git a/util1.c b/util1.c
+index 7a1f24b5..29a4b240 100644
+--- a/util1.c
++++ b/util1.c
+@@ -1459,12 +1459,7 @@ char *timestring(time_t t)
+ 	static char buffers[4][20]; /* We support 4 simultaneous timestring results. */
+ 	char *TimeBuf = buffers[ndx = (ndx + 1) % 4];
+ 	struct tm tmp, *tm = localtime_r(&t, &tmp);
+-	int len;
+-	if (!tm) {
+-		strlcpy(TimeBuf, "(time out of range)", sizeof buffers[0]);
+-		return TimeBuf;
+-	}
+-	len = snprintf(TimeBuf, sizeof buffers[0], "%4d/%02d/%02d %02d:%02d:%02d",
++	int len = snprintf(TimeBuf, sizeof buffers[0], "%4d/%02d/%02d %02d:%02d:%02d",
+ 		 (int)tm->tm_year + 1900, (int)tm->tm_mon + 1, (int)tm->tm_mday,
+ 		 (int)tm->tm_hour, (int)tm->tm_min, (int)tm->tm_sec);
+ 	assert(len > 0); /* Silence gcc warning */

@@ -1,0 +1,27 @@
+From 09d7d93e072aa2157dcfa2dbe138144c6c43eb3c Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:13 +0800
+Subject: [PATCH 169/200] 2e37d629
+
+---
+ support/rrsync | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/support/rrsync b/support/rrsync
+index 1c351596..5ddf2091 100755
+--- a/support/rrsync
++++ b/support/rrsync
+@@ -546,8 +546,11 @@ def validated_arg(opt, arg, typ=3, wild=False):
+ 
+     # "-" is rsync's read-the-list-from-stdin sentinel, not a pathname: a pull
+     # with a local --files-from sends exactly "--files-from=-" to the server.
+-    if opt == '--files-from' and arg == '-':
+-        return arg
++    if opt == '--files-from':
++        if arg == '-':
++            return arg
++        if args.wo:
++            die('a write-only server cannot read a remote --files-from path')
+ 
+     orig_arg = arg
+     if arg.startswith('./'):

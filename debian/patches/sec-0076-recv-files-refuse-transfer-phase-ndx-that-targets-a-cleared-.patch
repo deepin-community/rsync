@@ -1,0 +1,64 @@
+From 3a516cff39a97544e6c67aa0771cdcce4b1d1d64 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 076/200] 66b2f313
+
+---
+ receiver.c | 11 +++++++++++
+ sender.c   |  6 ++++++
+ util1.c    |  3 +++
+ 3 files changed, 20 insertions(+)
+
+diff --git a/receiver.c b/receiver.c
+index 37dabc80..79a7f662 100644
+--- a/receiver.c
++++ b/receiver.c
+@@ -704,6 +704,17 @@ int recv_files(int f_in, int f_out, char *local_name)
+ 			exit_cleanup(RERR_PROTOCOL);
+ 		else
+ 			file = dir_flist->files[cur_flist->parent_ndx];
++		if (!F_IS_ACTIVE(file)) {
++			/* A peer that sends duplicate file-list entries gets
++			 * one of them clear_file()'d by flist_sort_and_clean();
++			 * referencing that slot here yields fname == NULL and
++			 * a crash in the first deref (daemon filter check,
++			 * set_file_attrs → full_fname, …). */
++			rprintf(FERROR,
++				"rsync: refusing transfer of cleared file index %d\n",
++				ndx);
++			exit_cleanup(RERR_PROTOCOL);
++		}
+ 		fname = local_name ? local_name : f_name(file, fbuf);
+ 
+ 		if (DEBUG_GTE(RECV, 1))
+diff --git a/sender.c b/sender.c
+index 004577e7..85846ef6 100644
+--- a/sender.c
++++ b/sender.c
+@@ -344,6 +344,12 @@ void send_files(int f_in, int f_out)
+ 			exit_cleanup(RERR_PROTOCOL);
+ 		else
+ 			file = dir_flist->files[cur_flist->parent_ndx];
++		if (!F_IS_ACTIVE(file)) {
++			rprintf(FERROR,
++				"rsync: refusing transfer of cleared file index %d\n",
++				ndx);
++			exit_cleanup(RERR_PROTOCOL);
++		}
+ 		if (F_PATHNAME(file)) {
+ 			path = F_PATHNAME(file);
+ 			slash = "/";
+diff --git a/util1.c b/util1.c
+index 0ae7a2d1..8b353e04 100644
+--- a/util1.c
++++ b/util1.c
+@@ -1549,6 +1549,9 @@ char *full_fname(const char *fn)
+ 	if (result)
+ 		free(result);
+ 
++	if (!fn)
++		fn = "(null)";
++
+ 	if (*fn == '/')
+ 		p1 = p2 = "";
+ 	else {

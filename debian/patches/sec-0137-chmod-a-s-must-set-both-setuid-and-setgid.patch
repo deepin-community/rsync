@@ -1,0 +1,21 @@
+From a7d4460d04337a49055ae5d6bb7053a867086113 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:12 +0800
+Subject: [PATCH 137/200] 45318baa
+
+---
+ chmod.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/chmod.c b/chmod.c
+index 8bbf791a..2dd7c3c0 100644
+--- a/chmod.c
++++ b/chmod.c
+@@ -132,6 +132,7 @@ struct chmod_mode_struct *parse_chmod(const char *modestr,
+ 				break;
+ 			case 'a':
+ 				where |= 0111;
++				topbits |= 06000; /* a+s sets BOTH setuid and setgid (like chmod(1)) */
+ 				break;
+ 			case '+':
+ 				op = CHMOD_ADD;

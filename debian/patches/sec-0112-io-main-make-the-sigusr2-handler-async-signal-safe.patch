@@ -1,0 +1,145 @@
+From e7a293022c77bfbae8620ba0e7524bc2961eb789 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 112/200] b3e558d1
+
+---
+ io.c   | 26 ++++++++++++++++++++++++--
+ main.c | 21 +++++++++++++++++----
+ 2 files changed, 41 insertions(+), 6 deletions(-)
+
+diff --git a/io.c b/io.c
+index 0821e9e4..5ca630a6 100644
+--- a/io.c
++++ b/io.c
+@@ -79,6 +79,7 @@ BOOL flist_receiving_enabled = False;
+ /* Ignore an EOF error if non-zero. See whine_about_eof(). */
+ int kluge_around_eof = 0;
+ int got_kill_signal = -1; /* is set to 0 only after multiplexed I/O starts */
++volatile sig_atomic_t got_sigusr2 = 0; /* set by the async-signal-safe SIGUSR2 handler */
+ 
+ int sock_f_in = -1;
+ int sock_f_out = -1;
+@@ -220,9 +221,15 @@ static NORETURN void whine_about_eof(BOOL allow_kluge)
+ 		int i;
+ 		if (kluge_around_eof > 0)
+ 			exit_cleanup(0);
+-		/* If we're still here after 10 seconds, exit with an error. */
+-		for (i = 10*1000/20; i--; )
++		/* The receiver is waiting here for the generator's SIGUSR2; act on it
++		 * (exit cleanly) the moment it arrives rather than sleeping the full
++		 * 10s and then erroring.  The async-signal-safe handler only sets the
++		 * flag, so this loop must poll it. */
++		for (i = 10*1000/20; i--; ) {
++			if (got_sigusr2)
++				receive_sigusr2();
+ 			msleep(20);
++		}
+ 	}
+ 
+ 	rprintf(FERROR, RSYNC_NAME ": connection unexpectedly closed "
+@@ -247,6 +254,9 @@ static size_t safe_read(int fd, char *buf, size_t len)
+ 		fd_set r_fds, e_fds;
+ 		int cnt;
+ 
++		if (got_sigusr2)	/* receiver told to wrap up (e.g. a --read-batch fd) */
++			receive_sigusr2();
++
+ 		FD_ZERO(&r_fds);
+ 		FD_SET(fd, &r_fds);
+ 		FD_ZERO(&e_fds);
+@@ -315,6 +325,9 @@ static void safe_write(int fd, const char *buf, size_t len)
+ 
+ 	assert(fd != iobuf.out_fd);
+ 
++	if (got_sigusr2)	/* receiver told to wrap up before this (batch) write */
++		receive_sigusr2();
++
+ 	n = write(fd, buf, len);
+ 	if ((size_t)n == len)
+ 		return;
+@@ -336,6 +349,9 @@ static void safe_write(int fd, const char *buf, size_t len)
+ 		fd_set w_fds;
+ 		int cnt;
+ 
++		if (got_sigusr2)	/* receiver told to wrap up (e.g. a --write-batch fd) */
++			receive_sigusr2();
++
+ 		FD_ZERO(&w_fds);
+ 		FD_SET(fd, &w_fds);
+ 		tv.tv_sec = select_timeout;
+@@ -749,6 +765,8 @@ static char *perform_io(size_t needed, int flags)
+ 
+ 		if (got_kill_signal > 0)
+ 			handle_kill_signal(True);
++		if (got_sigusr2)
++			receive_sigusr2();
+ 
+ 		if (extra_flist_sending_enabled) {
+ 			if (file_total - file_old_total < MAX_FILECNT_LOOKAHEAD && IN_MULTIPLEXED_AND_READY)
+@@ -878,6 +896,8 @@ static char *perform_io(size_t needed, int flags)
+ 
+ 		if (got_kill_signal > 0)
+ 			handle_kill_signal(True);
++		if (got_sigusr2)
++			receive_sigusr2();
+ 
+ 		/* We need to help prevent deadlock by doing what reading
+ 		 * we can whenever we are here trying to write. */
+@@ -900,6 +920,8 @@ static char *perform_io(size_t needed, int flags)
+ 
+ 	if (got_kill_signal > 0)
+ 		handle_kill_signal(True);
++	if (got_sigusr2)
++		receive_sigusr2();
+ 
+ 	data = iobuf.in.buf + iobuf.in.pos;
+ 
+diff --git a/main.c b/main.c
+index 4255d767..40ddad5c 100644
+--- a/main.c
++++ b/main.c
+@@ -51,6 +51,7 @@ extern int called_from_signal_handler;
+ extern int need_messages_from_generator;
+ extern int kluge_around_eof;
+ extern int got_xfer_error;
++extern volatile sig_atomic_t got_sigusr2;
+ extern int old_style_args;
+ extern int msgs2stderr;
+ extern int module_id;
+@@ -1110,11 +1111,13 @@ static int do_recv(int f_in, int f_out, char *local_name)
+ 			exit_cleanup(RERR_PROTOCOL);
+ 		}
+ 
+-		/* Finally, we go to sleep until our parent kills us with a
+-		 * USR2 signal.  We sleep for a short time, as on some OSes
+-		 * a signal won't interrupt a sleep! */
+-		while (1)
++		/* Finally, we go to sleep until our parent tells us to wrap up
++		 * with a USR2 signal.  We sleep for a short time, as on some OSes
++		 * a signal won't interrupt a sleep, then act on the flag the
++		 * (async-signal-safe) handler set. */
++		while (!got_sigusr2)
+ 			msleep(20);
++		receive_sigusr2();
+ 	}
+ 
+ 	am_generator = 1;
+@@ -1656,7 +1659,17 @@ static void sigusr1_handler(UNUSED(int val))
+ 	exit_cleanup(RERR_SIGNAL1);
+ }
+ 
++/* SIGUSR2 tells the receiver child to wrap up.  A signal handler must be
++ * async-signal-safe, so it only sets a flag here; receive_sigusr2() does the
++ * actual summary + shutdown (which use stdio/malloc/close) at a safe point in
++ * the receiver's post-transfer wait loops (read_final_goodbye via perform_io,
++ * and the trailing sleep). */
+ static void sigusr2_handler(UNUSED(int val))
++{
++	got_sigusr2 = 1;
++}
++
++void receive_sigusr2(void)
+ {
+ 	if (!am_server)
+ 		output_summary();

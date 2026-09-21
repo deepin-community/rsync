@@ -1,0 +1,78 @@
+From c16155436699c1388911bea3f63f3c888d92329b Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:10 +0800
+Subject: [PATCH 096/200] c09cb8f4
+
+---
+ configure.ac |  3 ++-
+ main.c       | 22 ++++++++++++++++++++++
+ 2 files changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/configure.ac b/configure.ac
+index ac947b5d..c7c89852 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -13,7 +13,7 @@ AC_CHECK_HEADERS(sys/fcntl.h sys/select.h fcntl.h sys/time.h sys/unistd.h \
+     sys/acl.h acl/libacl.h attr/xattr.h sys/xattr.h sys/extattr.h dl.h \
+     popt.h popt/popt.h linux/falloc.h netinet/in_systm.h netgroup.h \
+     zlib.h xxhash.h openssl/md4.h openssl/md5.h zstd.h lz4.h sys/file.h \
+-    bsd/string.h)
++    bsd/string.h sys/resource.h)
+ AC_CHECK_HEADERS([netinet/ip.h], [], [], [[#include <netinet/in.h>]])
+ AC_HEADER_MAJOR_FIXED
+ 
+@@ -909,6 +909,7 @@ dnl AC_FUNC_MEMCMP
+ AC_FUNC_UTIME_NULL
+ AC_FUNC_ALLOCA
+ AC_CHECK_FUNCS(waitpid wait4 getcwd chown chmod lchmod mknod mkfifo fdopendir \
++    getrlimit setrlimit \
+     fchmod fstat ftruncate strchr readlink link utime utimes lutimes strftime \
+     chflags getattrlist mktime innetgr linkat mknodat mkfifoat \
+     memmove lchown vsnprintf snprintf vasprintf asprintf setsid strpbrk \
+diff --git a/main.c b/main.c
+index 9e88b2ba..18e00be9 100644
+--- a/main.c
++++ b/main.c
+@@ -31,6 +31,9 @@
+ #ifdef __TANDEM
+ #include <floss.h(floss_execlp)>
+ #endif
++#ifdef HAVE_SYS_RESOURCE_H
++#include <sys/resource.h>
++#endif
+ 
+ extern int dry_run;
+ extern int list_only;
+@@ -1749,6 +1752,23 @@ static void unset_env_var(const char *var)
+ }
+ 
+ 
++static void raise_fd_limit(void)
++{
++#if defined HAVE_GETRLIMIT && defined HAVE_SETRLIMIT && defined RLIMIT_NOFILE
++	struct rlimit rl;
++	rlim_t want = 4096; /* covers a MAXPATHLEN-deep walk + cache + headroom */
++
++	if (getrlimit(RLIMIT_NOFILE, &rl) < 0)
++		return;
++	if (want > rl.rlim_max)
++		want = rl.rlim_max; /* never exceed the (admin-set) hard limit */
++	if (rl.rlim_cur < want) { /* only ever raise, never lower an inherited limit */
++		rl.rlim_cur = want;
++		(void)setrlimit(RLIMIT_NOFILE, &rl); /* best-effort */
++	}
++#endif
++}
++
+ int main(int argc,char *argv[])
+ {
+ 	int ret;
+@@ -1756,6 +1776,8 @@ int main(int argc,char *argv[])
+ 	raw_argc = argc;
+ 	raw_argv = argv;
+ 
++	raise_fd_limit();
++
+ #ifdef HAVE_SIGACTION
+ # ifdef HAVE_SIGPROCMASK
+ 	sigset_t sigmask;

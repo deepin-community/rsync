@@ -1,0 +1,22 @@
+From 2a4adfb161f1409ab7ea835948207ee781c468a9 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:11 +0800
+Subject: [PATCH 117/200] 5d84ed23
+
+---
+ util1.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/util1.c b/util1.c
+index 230f7ded..094825c3 100644
+--- a/util1.c
++++ b/util1.c
+@@ -1182,7 +1182,7 @@ char *sanitize_path(char *dest, const char *p, const char *rootdir, int depth, i
+  * Also cleans the path using the clean_fname() function. */
+ int change_dir(const char *dir, int set_path_only)
+ {
+-	extern int am_daemon, am_chrooted, am_sender;
++	extern int am_daemon, am_chrooted, am_sender, insecure_links;
+ 	static int initialised, skipped_chdir;
+ 	unsigned int len;
+ 

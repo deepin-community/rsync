@@ -1,0 +1,198 @@
+From 46be250109afe676288fca80d84bceaf1622ab47 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:06 +0800
+Subject: [PATCH 013/200] 90495eec
+
+---
+ syscall.c                                | 68 ++++++++++++++++++++----
+ testsuite/bare-do-open-symlink-race.test | 20 -------
+ testsuite/copy-dest-source-symlink.test  | 15 ------
+ 3 files changed, 57 insertions(+), 46 deletions(-)
+
+diff --git a/syscall.c b/syscall.c
+index 0f92d8b9..46544353 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -203,11 +203,6 @@ int do_symlink_at(const char *lnk, const char *path)
+ 	if (!am_daemon || am_chrooted)
+ 		return do_symlink(lnk, path);
+ 
+-#if defined NO_SYMLINK_XATTRS || defined NO_SYMLINK_USER_XATTRS
+-	if (am_root < 0)
+-		return do_symlink(lnk, path);
+-#endif
+-
+ 	if (!path || !*path || *path == '/')
+ 		return do_symlink(lnk, path);
+ 
+@@ -228,6 +223,34 @@ int do_symlink_at(const char *lnk, const char *path)
+ 	if (dfd < 0)
+ 		return -1;
+ 
++#if defined NO_SYMLINK_XATTRS || defined NO_SYMLINK_USER_XATTRS
++	/* For --fake-super, do_symlink writes the link target into a
++	 * regular file rather than creating a real symlink. Do that
++	 * here against the secure dirfd, with O_NOFOLLOW so a pre-
++	 * planted symlink at the basename can't redirect the file
++	 * creation. (Previously the fake-super branch fell through to
++	 * the bare-path do_symlink at the top of the function.) */
++	if (am_root < 0) {
++		int len = strlen(lnk);
++		int fd = openat(dfd, bname,
++				O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW,
++				S_IWUSR | S_IRUSR);
++		if (fd < 0) {
++			e = errno;
++			close(dfd);
++			errno = e;
++			return -1;
++		}
++		ret = (write(fd, lnk, len) == len) ? 0 : -1;
++		if (close(fd) < 0)
++			ret = -1;
++		e = errno;
++		close(dfd);
++		errno = e;
++		return ret;
++	}
++#endif
++
+ 	ret = symlinkat(lnk, dfd, bname);
+ 	e = errno;
+ 	close(dfd);
+@@ -503,9 +526,12 @@ int do_mknod(const char *pathname, mode_t mode, dev_t dev)
+   mknodat() against that dirfd. mknodat() covers both regular-file
+   (S_IFREG with dev=0) and FIFO (S_IFIFO) and device-node creation.
+ 
+-  Falls through to do_mknod() for fake-super (am_root < 0) and for
+-  sockets, both of which use auxiliary path-based syscalls that
+-  don't have an *at() variant in any portable form.
++  Fake-super (am_root < 0) is handled inline against the secure
++  parent dirfd: it creates a regular empty file (the same file-as-
++  metadata-placeholder pattern do_mknod uses) via openat() with
++  O_NOFOLLOW. Sockets fall through to do_mknod() because their
++  bind(2) takes a path argument with no portable bindat() variant;
++  this is documented as a residual.
+ */
+ int do_mknod_at(const char *pathname, mode_t mode, dev_t dev)
+ {
+@@ -523,9 +549,6 @@ int do_mknod_at(const char *pathname, mode_t mode, dev_t dev)
+ 	if (!am_daemon || am_chrooted)
+ 		return do_mknod(pathname, mode, dev);
+ 
+-	if (am_root < 0)
+-		return do_mknod(pathname, mode, dev);
+-
+ #if !defined MKNOD_CREATES_SOCKETS && defined HAVE_SYS_UN_H
+ 	if (S_ISSOCK(mode))
+ 		return do_mknod(pathname, mode, dev);
+@@ -551,6 +574,29 @@ int do_mknod_at(const char *pathname, mode_t mode, dev_t dev)
+ 	if (dfd < 0)
+ 		return -1;
+ 
++	if (am_root < 0) {
++		/* For --fake-super, do_mknod creates a regular empty
++		 * file as a placeholder for the special-file metadata
++		 * (which is stored in xattrs elsewhere). Do that against
++		 * the secure dirfd, with O_NOFOLLOW so a pre-planted
++		 * symlink at the basename can't redirect the file
++		 * creation. */
++		int fd = openat(dfd, bname,
++				O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW,
++				S_IWUSR | S_IRUSR);
++		if (fd < 0) {
++			e = errno;
++			close(dfd);
++			errno = e;
++			return -1;
++		}
++		ret = (close(fd) < 0) ? -1 : 0;
++		e = errno;
++		close(dfd);
++		errno = e;
++		return ret;
++	}
++
+ #if !defined MKNOD_CREATES_FIFOS && defined HAVE_MKFIFO
+ 	if (S_ISFIFO(mode))
+ 		ret = mkfifoat(dfd, bname, mode);
+diff --git a/testsuite/bare-do-open-symlink-race.test b/testsuite/bare-do-open-symlink-race.test
+index e2952239..b8c51bbe 100755
+--- a/testsuite/bare-do-open-symlink-race.test
++++ b/testsuite/bare-do-open-symlink-race.test
+@@ -82,20 +82,6 @@ verify_outside_unchanged_or_absent() {
+     fi
+ }
+ 
+-# When running as root the daemon would drop to "nobody" by default
+-# and fail to write into the test scratch dir. Force it to keep our
+-# uid/gid in that case so the receiver actually runs the code paths
+-# we want to test.
+-my_uid=`get_testuid`
+-root_uid=`get_rootuid`
+-root_gid=`get_rootgid`
+-uid_setting="uid = $root_uid"
+-gid_setting="gid = $root_gid"
+-if test x"$my_uid" != x"$root_uid"; then
+-    uid_setting="#$uid_setting"
+-    gid_setting="#$gid_setting"
+-fi
+-
+ 
+ ############################################################
+ # Scenario 3b: --inplace --backup --backup-dir=cd
+@@ -117,8 +103,6 @@ chmod 0644 "$src/target.txt"
+ 
+ cat > "$conf" <<EOF
+ use chroot = no
+-$uid_setting
+-$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload]
+     path = $mod
+@@ -153,8 +137,6 @@ ln -s /etc/passwd "$src/cd/sym"
+ 
+ cat > "$conf" <<EOF
+ use chroot = no
+-$uid_setting
+-$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload_fake]
+     path = $mod
+@@ -188,8 +170,6 @@ fi
+ 
+ cat > "$conf" <<EOF
+ use chroot = no
+-$uid_setting
+-$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload_fake]
+     path = $mod
+diff --git a/testsuite/copy-dest-source-symlink.test b/testsuite/copy-dest-source-symlink.test
+index f91ee986..2d20fab4 100755
+--- a/testsuite/copy-dest-source-symlink.test
++++ b/testsuite/copy-dest-source-symlink.test
+@@ -54,23 +54,8 @@ echo "ATTACKER_KNOWN_DATA!" > "$src/target.txt"
+ touch -r "$outside/target.txt" "$src/target.txt"
+ chmod 0644 "$src/target.txt"
+ 
+-# When running as root the daemon would drop to "nobody" by
+-# default and fail to mkstemp in the scratch dir; force it to
+-# keep our uid/gid in that case.
+-my_uid=`get_testuid`
+-root_uid=`get_rootuid`
+-root_gid=`get_rootgid`
+-uid_setting="uid = $root_uid"
+-gid_setting="gid = $root_gid"
+-if test x"$my_uid" != x"$root_uid"; then
+-    uid_setting="#$uid_setting"
+-    gid_setting="#$gid_setting"
+-fi
+-
+ cat > "$conf" <<EOF
+ use chroot = no
+-$uid_setting
+-$gid_setting
+ log file = $scratchdir/rsyncd.log
+ [upload]
+     path = $mod

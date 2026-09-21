@@ -1,0 +1,54 @@
+From ee12f3d9d0bbcc086740d43db4efc8ea4d90f1fc Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:13 +0800
+Subject: [PATCH 170/200] 4076aa68
+
+---
+ support/rrsync      | 13 ++++++++++++-
+ support/rrsync.1.md |  8 ++++++++
+ 2 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/support/rrsync b/support/rrsync
+index 5ddf2091..d627ee0a 100755
+--- a/support/rrsync
++++ b/support/rrsync
+@@ -393,8 +393,19 @@ def main():
+     if args.ro:
+         long_opts['log-file'] = -1
+ 
++    global short_disabled
++    if args.no_overwrite:
++        # --ignore-existing guards only the live transfer destination.  These
++        # options append to, consume, move or remove other existing objects in
++        # the restricted dir.  Backup mode belongs here too: publishing a
++        # backup onto a name that already exists deletes what is there
++        # (backup.c make_backup()), and deletion backs files up as well
++        # (delete.c), so an unrelated --delete can land on a protected name.
++        long_opts['log-file'] = long_opts['partial-dir'] = long_opts['delay-updates'] = -1
++        long_opts['backup-dir'] = -1
++        short_disabled += 'b'   # must precede the short_no_arg_re build below
++
+     if args.dir != '/':
+-        global short_disabled
+         short_disabled += short_disabled_subdir
+         long_opts['copy-unsafe-links'] = -1
+ 
+diff --git a/support/rrsync.1.md b/support/rrsync.1.md
+index 09b2f282..024287a5 100644
+--- a/support/rrsync.1.md
++++ b/support/rrsync.1.md
+@@ -90,6 +90,14 @@ The remainder of this manpage is dedicated to using the rrsync script.
+     Enforce `--ignore-existing` on the server. Prevents overwriting existing
+     files when the server is the receiver.
+ 
++    Because `--ignore-existing` protects only the file being transferred, this
++    also refuses the options that can reach a *different* existing file in the
++    restricted dir: `--log-file`, `--partial-dir`, `--delay-updates`, and
++    backup mode (`-b`, `--backup-dir`, whose published backup replaces whatever
++    already occupies the backup name). Resumable uploads with an explicit
++    `--partial-dir`, `--delay-updates`, and server-side logging are therefore
++    unavailable under this option.
++
+ 0.  `-help`, `-h`
+ 
+     Output this help message and exit.

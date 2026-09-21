@@ -1,0 +1,26 @@
+From d7e307c66ead733f8096f247f238ba7ece1037f6 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:10 +0800
+Subject: [PATCH 099/200] 422fc5af
+
+---
+ generator.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/generator.c b/generator.c
+index 2bd448c1..baa3fd34 100644
+--- a/generator.c
++++ b/generator.c
+@@ -238,7 +238,11 @@ static int read_delay_line(char *buf, int *flags_p)
+ 		goto invalid_data;
+ 	}
+ 	past_space++;
+-	len = j - read_pos - (past_space - bp) + 1; /* count the '\0' */
++	/* Name length + NUL.  Computed from past_space directly: the old
++	 * `j - read_pos - (past_space - bp)` form was off by +1 when a '!'
++	 * prefix had advanced bp past read_pos, over-reading deldelay_buf
++	 * by one byte on a buffer-filling final entry. */
++	len = (deldelay_buf + j) - past_space + 1;
+ 	read_pos = j + 1;
+ 
+ 	if (len > MAXPATHLEN) {

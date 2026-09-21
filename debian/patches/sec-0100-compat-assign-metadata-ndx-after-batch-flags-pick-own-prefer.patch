@@ -1,0 +1,128 @@
+From 6ef9731ae960a0a05540e3f0eb8490f4360aa07d Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:10 +0800
+Subject: [PATCH 100/200] cd82ef37
+
+---
+ compat.c         | 33 ++++++++++++++++++++++-----------
+ rsync.1.md       | 14 ++++++++------
+ rsyncd.conf.5.md |  9 +++++----
+ 3 files changed, 35 insertions(+), 21 deletions(-)
+
+diff --git a/compat.c b/compat.c
+index d1ca3161..ba1b0c94 100644
+--- a/compat.c
++++ b/compat.c
+@@ -351,7 +351,7 @@ static int parse_negotiate_str(struct name_num_obj *nno, char *tmpbuf)
+ 			continue;
+ 		ret = nni;
+ 		best = nno->saw[nni->num];
+-		if (best == 1 || am_server) /* The server side stops at the first acceptable client choice */
++		if (best == 1) /* Can't improve on our own #1 preference */
+ 			break;
+ 	}
+ 	if (ret) {
+@@ -526,8 +526,11 @@ static void send_negotiate_str(int f_out, struct name_num_obj *nno, int ntype)
+ 			rprintf(FINFO, "Client %s list (on client): %s\n", nno->type, tmpbuf);
+ 	}
+ 
+-	/* Each side sends their list of valid names to the other side and then both sides
+-	 * pick the first name in the client's list that is also in the server's list. */
++	/* Each side sends their list of valid names to the other side and then each
++	 * side picks its own most-preferred name that also appears in the peer's
++	 * list.  Honest peers emit their list in table (strongest-first) order via
++	 * get_default_nno_list(), so both sides converge on the strongest mutual
++	 * choice; a peer that front-loads a weaker name only desyncs itself. */
+ 	if (do_negotiated_strings)
+ 		write_vstring(f_out, tmpbuf, len);
+ }
+@@ -585,14 +588,13 @@ void setup_protocol(int f_out,int f_in)
+ 		pathname_ndx = (file_extra_cnt += PTR_EXTRA_CNT);
+ 	else
+ 		depth_ndx = ++file_extra_cnt;
+-	if (preserve_uid)
+-		uid_ndx = ++file_extra_cnt;
+-	if (preserve_gid)
+-		gid_ndx = ++file_extra_cnt;
+-	if (preserve_acls && !am_sender)
+-		acls_ndx = ++file_extra_cnt;
+-	if (preserve_xattrs)
+-		xattrs_ndx = ++file_extra_cnt;
++	/* uid_ndx/gid_ndx/acls_ndx/xattrs_ndx are assigned AFTER
++	 * check_batch_flags() below: a batch file's stream-flags can flip
++	 * preserve_uid/gid/acls/xattrs on, and computing the *_ndx slots
++	 * before that leaves e.g. preserve_xattrs=1 with xattrs_ndx=0 -- so
++	 * F_XATTR(file) (= REQ_EXTRA(file, 0)) writes at offset 0 of every
++	 * file_struct, clobbering file->dirname.  Nothing between here and
++	 * check_batch_flags() reads file_extra_cnt or the *_ndx values. */
+ 
+ 	if (am_server)
+ 		set_allow_inc_recurse();
+@@ -639,6 +641,15 @@ void setup_protocol(int f_out,int f_in)
+ 	if (read_batch)
+ 		check_batch_flags();
+ 
++	if (preserve_uid)
++		uid_ndx = ++file_extra_cnt;
++	if (preserve_gid)
++		gid_ndx = ++file_extra_cnt;
++	if (preserve_acls && !am_sender)
++		acls_ndx = ++file_extra_cnt;
++	if (preserve_xattrs)
++		xattrs_ndx = ++file_extra_cnt;
++
+ 	if (!saw_stderr_opt && protocol_version <= 28 && am_server)
+ 		msgs2stderr = 0; /* The client side may not have stderr setup for us. */
+ 
+diff --git a/rsync.1.md b/rsync.1.md
+index 6108641d..8d924dff 100644
+--- a/rsync.1.md
++++ b/rsync.1.md
+@@ -1877,9 +1877,10 @@ expand it.
+     The "auto" option is the default, where rsync bases its algorithm choice on
+     a negotiation between the client and the server as follows:
+ 
+-    When both sides of the transfer are at least 3.2.0, rsync chooses the first
+-    algorithm in the client's list of choices that is also in the server's list
+-    of choices.  If no common checksum choice is found, rsync exits with
++    When both sides of the transfer are at least 3.2.0, each side chooses its own
++    most-preferred algorithm that also appears in the peer's list.  Both sides
++    order their lists strongest-first, so they converge on the strongest mutual
++    choice.  If no common checksum choice is found, rsync exits with
+     an error.  If the remote rsync is too old to support checksum negotiation,
+     a value is chosen based on the protocol version (which chooses between MD5
+     and various flavors of MD4 based on protocol age).
+@@ -2814,9 +2815,10 @@ expand it.
+     Run `rsync --version` to see the default compress list compiled into your
+     version.
+ 
+-    When both sides of the transfer are at least 3.2.0, rsync chooses the first
+-    algorithm in the client's list of choices that is also in the server's list
+-    of choices.  If no common compress choice is found, rsync exits with
++    When both sides of the transfer are at least 3.2.0, each side chooses its own
++    most-preferred algorithm that also appears in the peer's list.  Both sides
++    order their lists strongest-first, so they converge on the strongest mutual
++    choice.  If no common compress choice is found, rsync exits with
+     an error.  If the remote rsync is too old to support checksum negotiation,
+     its list is assumed to be "zlib".
+ 
+diff --git a/rsyncd.conf.5.md b/rsyncd.conf.5.md
+index 484bfe6f..2dd9d124 100644
+--- a/rsyncd.conf.5.md
++++ b/rsyncd.conf.5.md
+@@ -758,10 +758,11 @@ in the values of parameters.  See that section for details.
+     This parameter sets the *minimum* message digest that the daemon will accept
+     for the challenge-response authentication of an "[auth users](#)" module.
+     The available digests, strongest first, are `sha512`, `sha256`, `sha1`,
+-    `md5`, `md4`.  The daemon selects the auth digest from the connecting
+-    client's advertised list (and falls back to `md5`, or `md4` below protocol
+-    30, for a client that advertises none), so the negotiated digest can be
+-    weaker than both sides actually support.  If it is weaker than the configured
++    `md5`, `md4`.  The daemon selects its own most-preferred digest that also
++    appears in the connecting client's advertised list (and falls back to `md5`,
++    or `md4` below protocol 30, for a client that advertises none), so a client
++    that advertises only weak digests can still force a weak negotiated digest.
++    If it is weaker than the configured
+     name, the connection is refused before the challenge is sent.  The value is a
+     single digest name, for example:
+ 

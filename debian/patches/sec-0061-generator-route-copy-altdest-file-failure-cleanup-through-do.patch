@@ -1,0 +1,26 @@
+From f41f08ee04c59b9e8353515aba79df3c7ef56a47 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 061/200] 4a83db49
+
+---
+ generator.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/generator.c b/generator.c
+index 2902a765..71ce825a 100644
+--- a/generator.c
++++ b/generator.c
+@@ -932,8 +932,10 @@ static int copy_altdest_file(const char *src, const char *dest, struct file_stru
+ 			rsyserr(FINFO, errno, "copy_file %s => %s",
+ 				full_fname(src), copy_to);
+ 		}
+-		/* Try to clean up. */
+-		unlink(copy_to);
++		/* Try to clean up.  copy_to's parent components are peer-named
++		 * and can be raced to a symlink, so resolve each with O_NOFOLLOW
++		 * via do_unlink_at() like the other generator-side unlinks. */
++		do_unlink_at(copy_to);
+ 		cleanup_disable();
+ 		return -1;
+ 	}

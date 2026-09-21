@@ -1,0 +1,28 @@
+From 72d9d97db69d89f4c4e263b7bd91f8772ae1cae1 Mon Sep 17 00:00:00 2001
+From: t <t@t>
+Date: Mon, 21 Sep 2026 12:13:09 +0800
+Subject: [PATCH 085/200] 9491aafd
+
+---
+ match.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/match.c b/match.c
+index b78a2e51..b1d5b055 100644
+--- a/match.c
++++ b/match.c
+@@ -371,6 +371,14 @@ void match_sums(int f, struct sum_struct *s, struct map_struct *buf, OFF_T len)
+ 	sum_init(xfer_sum_nni, checksum_seed);
+ 
+ 	if (append_mode > 0) {
++		if (s->flength > len) {
++			/* A hostile or confused peer can claim a verified-prefix
++			 * length that exceeds what we have on disk -- including
++			 * for an empty local file, where buf is NULL and the
++			 * map_ptr() calls below would dereference it.  Clamp to
++			 * what we can actually read. */
++			s->flength = len;
++		}
+ 		if (append_mode == 2) {
+ 			OFF_T j = 0;
+ 			for (j = CHUNK_SIZE; j < s->flength; j += CHUNK_SIZE) {
