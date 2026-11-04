@@ -202,3 +202,4 @@ sec-0197-configure-avoid-runtime-ipv6-availability-probe.patch
 sec-0198-options-fix-safe-arg-uninitialized-byte-leak-in-filename-mod.patch
 sec-0199-testsuite-declare-the-newer-suite-tests-this-branch-cannot-r.patch
 sec-0200-testsuite-fix-the-two-macos-cells-the-3-5-0-fleet-run-flagge.patch
+CVE-2026-119741.patch

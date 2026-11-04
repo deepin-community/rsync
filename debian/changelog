@@ -1,3 +1,12 @@
+rsync (3.4.4+ds1-1deepin16) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-119741 (high) - match: bound hash_search
+    collision work (#1132)   Upstream:
+    https://github.com/RsyncProject/rsync/commit/a7404a9a633cff28ee1602f
+    328b9c3fa69cdbd04.patch
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 04 Nov 2026 08:45:56 +0800
+
 rsync (3.4.4+ds1-1deepin15) unstable; urgency=medium
 
   * Rebuild the CVE patch series from upstream's v3.4-stable security
