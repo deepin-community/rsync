@@ -8,7 +8,7 @@
 # the rsync git checkout):
 #
 #   ../release/rsync-ftp/       mirror of samba.org:/home/ftp/pub/rsync
-#   ../release/rsync-html/      git checkout of rsync-web (the html site)
+#   ../release/rsync-html/      release-time snapshot of the html site
 #   ../release/work/            scratch space for tarball / diff staging
 #   ../release/release-state.json   info shared between steps
 #
@@ -35,10 +35,11 @@ HTML_DIR    = os.path.join(RELEASE_DIR, 'rsync-html')
 WORK_DIR    = os.path.join(RELEASE_DIR, 'work')
 STATE_FILE  = os.path.join(RELEASE_DIR, 'release-state.json')
 
-# Local rsync-web checkout (sibling of rsync-git) is the source-of-truth for
-# the git-tracked html content.  The maintainer pulls/commits/pushes there;
-# step-1-fetch just snapshots it into HTML_DIR for the release flow.
-HTML_SRC = os.path.realpath('../rsync-web')
+# The rsync-web/ subdirectory in the rsync source tree is the source-of-truth
+# for the git-tracked html content.  step-1-fetch snapshots it into HTML_DIR
+# for the release flow, where it can be edited or augmented with server-side
+# content before step-11-push-html sends it to samba.org.
+HTML_SRC = os.path.realpath('rsync-web')
 
 FTP_REMOTE_PATH  = '/home/ftp/pub/rsync'
 HTML_REMOTE_PATH = '/home/httpd/html/rsync'
@@ -60,7 +61,7 @@ GEN_FILES = [
 # ---------- Step registry ----------
 
 STEPS = [
-    ('step-1-fetch',       'mirror ../release/rsync-ftp from samba.org and snapshot ../release/rsync-html from ../rsync-web'),
+    ('step-1-fetch',       'mirror ../release/rsync-ftp from samba.org and snapshot ../release/rsync-html from rsync-web/'),
     ('step-2-prepare',     'gather release info interactively and write release-state.json'),
     ('step-3-tweak',       'update version.h, rsync.h, NEWS.md, and packaging/*.spec'),
     ('step-4-build',       'run smart-make + make gen'),
@@ -136,27 +137,29 @@ def step_1_fetch(args):
     section(f"Fetching ftp dir into {FTP_DIR}")
     if not os.path.isdir(FTP_DIR):
         os.makedirs(FTP_DIR)
-    # The .filt file lives in the ftp dir on the server; mirror down using the
-    # transmitted filter, falling back to no filter on the very first pull.
+    # packaging/ftp.filt is the authoritative copy of the .filt filter file
+    # that controls which subtrees rsync excludes from the FTP mirror.
+    # Seed FTP_DIR/.filt from it so the bundled version is what step-1's
+    # rsync uses here, and so step-10-push-ftp propagates it back to the
+    # server.  --exclude=/.filt below stops the server's copy from
+    # overwriting our bundled one on the way down.
     filt = os.path.join(FTP_DIR, '.filt')
-    if os.path.exists(filt):
-        opts = ['-aivOHP', f'-f:_{filt}']
-    else:
-        opts = ['-aivOHP']
-    cmd_chk(['rsync', *opts, f'{host}:{FTP_REMOTE_PATH}/', f'{FTP_DIR}/'])
+    bundled_filt = os.path.realpath('packaging/ftp.filt')
+    if not os.path.isfile(bundled_filt):
+        die(f"{bundled_filt} not found; cannot seed .filt for the FTP pull.")
+    shutil.copyfile(bundled_filt, filt)
+    cmd_chk(['rsync', '-aivOHP', f'-f:_{filt}', '--exclude=/.filt',
+             f'{host}:{FTP_REMOTE_PATH}/', f'{FTP_DIR}/'])
 
     section(f"Snapshotting html dir from {HTML_SRC} into {HTML_DIR}")
     if not os.path.isdir(HTML_SRC):
-        die(f"{HTML_SRC} not found.  Clone the rsync-web repo there first.")
-    if not os.path.isdir(os.path.join(HTML_SRC, '.git')):
-        die(f"{HTML_SRC} exists but is not a git checkout.")
-    print(f"(Make sure {HTML_SRC} is up to date — this script does not 'git pull' for you.)")
+        die(f"{HTML_SRC} not found.  This should be the in-tree rsync-web/ "
+            f"subdirectory; something is wrong with your checkout.")
     os.makedirs(HTML_DIR, exist_ok=True)
-    cmd_chk(['rsync', '-aiv', '--exclude=/.git',
-             f'{HTML_SRC}/', f'{HTML_DIR}/'])
+    cmd_chk(['rsync', '-aiv', f'{HTML_SRC}/', f'{HTML_DIR}/'])
 
-    # Then mirror non-git html content from the server (mirroring samba-rsync's
-    # behavior: skip files that the html git already provides).
+    # Then mirror non-git html content from the server, skipping files that
+    # the html git already provides (driven by the 'filt' file in HTML_DIR).
     filt = os.path.join(HTML_DIR, 'filt')
     if os.path.exists(filt):
         tmp_filt = os.path.join(HTML_DIR, 'tmp-filt')
@@ -186,7 +189,10 @@ def step_2_prepare(args):
     tz_num   = tz_now[0:1].replace('+', '') + str(float(tz_now[1:3]) + float(tz_now[3:]) / 60)
 
     curversion = get_rsync_version()
-    lastversion, last_protocol_version, pdate = get_NEWS_version_info()
+    # Skip the version we are releasing: its NEWS entry may already be dated,
+    # in which case it would otherwise be taken for the previous release.
+    lastversion, last_protocol_version, pdate = get_NEWS_version_info(
+        skip_version=re.sub(r'(pre\d+|dev)$', '', curversion))
     protocol_version, subprotocol_version    = get_protocol_versions()
 
     # Default next version: bump preN, or move dev -> pre1.
@@ -334,8 +340,11 @@ def step_3_tweak(args):
                                  f"Unable to find SUBPROTOCOL_VERSION in {fn}")
         elif fn == 'NEWS.md':
             efv = re.escape(finalversion)
+            # Accept either "(UNRELEASED)" or an already-filled date, so a
+            # release entry that was dated by hand (or by an earlier run of
+            # this step) does not have to be reverted before releasing.
             x_re = re.compile(
-                r'^# NEWS for rsync %s \(UNRELEASED\)\s+## Changes in this version:\n' % efv
+                r'^# NEWS for rsync %s \((?:UNRELEASED|\d+ \w{3} \d{4})\)\s+## Changes in this version:\n' % efv
                 + r'(\n### PROTOCOL NUMBER:\s+- The protocol number was changed to \d+\.\n)?')
             rel_day = 'UNRELEASED' if pre else today
             repl = (f'# NEWS for rsync {finalversion} ({rel_day})\n\n'
@@ -343,7 +352,8 @@ def step_3_tweak(args):
             if proto_changed:
                 repl += f'\n### PROTOCOL NUMBER:\n\n - The protocol number was changed to {protocol_version}.\n'
             good_top = re.sub(r'\(.*?\)', '(UNRELEASED)', repl, 1)
-            msg = (f"The top of {fn} is not in the right format.  It should be:\n" + good_top)
+            msg = (f"The top of {fn} is not in the right format.  It should be:\n" + good_top
+                   + "(an already-filled release date in place of UNRELEASED is also accepted)")
             txt = replace_or_die(x_re, repl, txt, msg)
             x_re = re.compile(
                 r'^(\| )(\S{2} \S{3} \d{4})(\s+\|\s+%s\s+\| ).{11}(\s+\| )\S{2}(\s+\|+)$' % efv,
@@ -631,9 +641,10 @@ If you have a 'samba' remote configured (git.samba.org:/data/git/rsync.git):
     git push samba {master_branch}
     git push samba {v_ver}
 
-Then upload the tarball + .asc to the GitHub release for {v_ver}, run
-packaging/send-news (when convenient), and announce on rsync-announce@,
-rsync@, and Discord.
+Then upload the tarball + .asc to the GitHub release for {v_ver},
+and announce on rsync-announce@, rsync@, and Discord.
+
+NOTE! Also update the PPAs if needed
 """)
 
 

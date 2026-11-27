@@ -736,6 +736,8 @@ ac_user_opts='
 enable_option_checking
 enable_debug
 enable_profile
+enable_coverage
+enable_openat2
 enable_md2man
 enable_maintainer_mode
 with_openssl_conf
@@ -1400,6 +1402,9 @@ Optional Features:
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --disable-debug         disable to omit debugging symbols and features
   --enable-profile        enable to turn on CPU profiling
+  --enable-coverage       build with gcov instrumentation for `make coverage`
+  --disable-openat2       do not use Linux openat2(RESOLVE_BENEATH); force the
+                          portable resolver (for exercising the fallback tier)
   --disable-md2man        disable to omit manpage creation
   --enable-maintainer-mode
                           enable to turn on extra debug features
@@ -4742,6 +4747,12 @@ printf "%s\n" "#define HAVE_SYS_WAIT_H 1" >>confdefs.h
 
 fi
 
+ac_fn_c_check_header_compile "$LINENO" "poll.h" "ac_cv_header_poll_h" "$ac_includes_default"
+if test "x$ac_cv_header_poll_h" = xyes
+then :
+  printf "%s\n" "#define HAVE_POLL_H 1" >>confdefs.h
+
+fi
 ac_fn_c_check_header_compile "$LINENO" "sys/fcntl.h" "ac_cv_header_sys_fcntl_h" "$ac_includes_default"
 if test "x$ac_cv_header_sys_fcntl_h" = xyes
 then :
@@ -5046,6 +5057,12 @@ ac_fn_c_check_header_compile "$LINENO" "sys/file.h" "ac_cv_header_sys_file_h" "$
 if test "x$ac_cv_header_sys_file_h" = xyes
 then :
   printf "%s\n" "#define HAVE_SYS_FILE_H 1" >>confdefs.h
+
+fi
+ac_fn_c_check_header_compile "$LINENO" "sys/resource.h" "ac_cv_header_sys_resource_h" "$ac_includes_default"
+if test "x$ac_cv_header_sys_resource_h" = xyes
+then :
+  printf "%s\n" "#define HAVE_SYS_RESOURCE_H 1" >>confdefs.h
 
 fi
 ac_fn_c_check_header_compile "$LINENO" "bsd/string.h" "ac_cv_header_bsd_string_h" "$ac_includes_default"
@@ -6980,6 +6997,28 @@ if test x"$enable_profile" = x"yes"; then
 	CFLAGS="$CFLAGS -pg"
 fi
 
+# Check whether --enable-coverage was given.
+if test ${enable_coverage+y}
+then :
+  enableval=$enable_coverage;
+fi
+
+if test x"$enable_coverage" = x"yes"; then
+	CFLAGS="$CFLAGS --coverage -fprofile-update=atomic -O0"
+	CXXFLAGS="$CXXFLAGS --coverage -fprofile-update=atomic -O0"
+	LDFLAGS="$LDFLAGS --coverage"
+
+printf "%s\n" "#define GCOV_COVERAGE 1" >>confdefs.h
+
+fi
+
+# Check whether --enable-openat2 was given.
+if test ${enable_openat2+y}
+then :
+  enableval=$enable_openat2;
+fi
+
+
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking if md2man can create manpages" >&5
 printf %s "checking if md2man can create manpages... " >&6; }
 if test x"$ac_cv_path_PYTHON3" = x; then
@@ -7598,10 +7637,12 @@ esac
 fi
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rsync_cv_HAVE_OPENAT2" >&5
 printf "%s\n" "$rsync_cv_HAVE_OPENAT2" >&6; }
-if test x"$rsync_cv_HAVE_OPENAT2" = x"yes"; then
+if test x"$enable_openat2" != x"no"; then
+    if test x"$rsync_cv_HAVE_OPENAT2" = x"yes"; then
 
 printf "%s\n" "#define HAVE_OPENAT2 1" >>confdefs.h
 
+    fi
 fi
 
 # arrgh. libc in some old debian version screwed up the largefile
@@ -7868,28 +7909,26 @@ printf "%s\n" "#define INET6 1" >>confdefs.h
 	;;
   esac
 else case e in #(
-  e) if test "$cross_compiling" = yes
-then :
-  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; }
-
-else case e in #(
   e) cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
- /* AF_INET6 availability check */
-#include <stdlib.h>
+
 #include <sys/types.h>
 #include <sys/socket.h>
-int main()
-{
-   if (socket(AF_INET6, SOCK_STREAM, 0) < 0)
-     exit(1);
-   else
-     exit(0);
-}
+#include <netinet/in.h>
 
+int
+main (void)
+{
+
+struct sockaddr_in6 sa6;
+(void)sa6;
+(void)AF_INET6;
+
+  ;
+  return 0;
+}
 _ACEOF
-if ac_fn_c_try_run "$LINENO"
+if ac_fn_c_try_compile "$LINENO"
 then :
   { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
 printf "%s\n" "yes" >&6; }
@@ -7898,14 +7937,11 @@ printf "%s\n" "#define INET6 1" >>confdefs.h
 
 else case e in #(
   e) { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; } ;;
-esac
-fi
-rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
-  conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
-esac
-fi
+printf "%s\n" "no" >&6; }
  ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
 esac
 fi
 
@@ -10508,6 +10544,24 @@ fi
 
 # if we can't find strcasecmp, look in -lresolv (for Unixware at least)
 #
+
+  for ac_func in poll
+do :
+  ac_fn_c_check_func "$LINENO" "poll" "ac_cv_func_poll"
+if test "x$ac_cv_func_poll" = xyes
+then :
+  printf "%s\n" "#define HAVE_POLL 1" >>confdefs.h
+
+else case e in #(
+  e) as_fn_error $? "rsync requires poll(); please report the platform to the rsync developers" "$LINENO" 5 ;;
+esac
+fi
+
+done
+if test x"$ac_cv_header_poll_h" != x"yes"; then
+    as_fn_error $? "rsync requires <poll.h>; please report the platform to the rsync developers" "$LINENO" 5
+fi
+
 ac_fn_c_check_func "$LINENO" "strcasecmp" "ac_cv_func_strcasecmp"
 if test "x$ac_cv_func_strcasecmp" = xyes
 then :
@@ -10900,6 +10954,24 @@ then :
   printf "%s\n" "#define HAVE_MKFIFO 1" >>confdefs.h
 
 fi
+ac_fn_c_check_func "$LINENO" "fdopendir" "ac_cv_func_fdopendir"
+if test "x$ac_cv_func_fdopendir" = xyes
+then :
+  printf "%s\n" "#define HAVE_FDOPENDIR 1" >>confdefs.h
+
+fi
+ac_fn_c_check_func "$LINENO" "getrlimit" "ac_cv_func_getrlimit"
+if test "x$ac_cv_func_getrlimit" = xyes
+then :
+  printf "%s\n" "#define HAVE_GETRLIMIT 1" >>confdefs.h
+
+fi
+ac_fn_c_check_func "$LINENO" "setrlimit" "ac_cv_func_setrlimit"
+if test "x$ac_cv_func_setrlimit" = xyes
+then :
+  printf "%s\n" "#define HAVE_SETRLIMIT 1" >>confdefs.h
+
+fi
 ac_fn_c_check_func "$LINENO" "fchmod" "ac_cv_func_fchmod"
 if test "x$ac_cv_func_fchmod" = xyes
 then :
@@ -11242,6 +11314,12 @@ then :
   printf "%s\n" "#define HAVE_UTIMENSAT 1" >>confdefs.h
 
 fi
+ac_fn_c_check_func "$LINENO" "futimens" "ac_cv_func_futimens"
+if test "x$ac_cv_func_futimens" = xyes
+then :
+  printf "%s\n" "#define HAVE_FUTIMENS 1" >>confdefs.h
+
+fi
 ac_fn_c_check_func "$LINENO" "posix_fallocate" "ac_cv_func_posix_fallocate"
 if test "x$ac_cv_func_posix_fallocate" = xyes
 then :
@@ -11285,6 +11363,42 @@ then :
 
 fi
 
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for dirfd" >&5
+printf %s "checking for dirfd... " >&6; }
+if test ${rsync_cv_HAVE_DIRFD+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <dirent.h>
+int
+main (void)
+{
+DIR *d = opendir("."); return d ? dirfd(d) < -1 : 0;
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  rsync_cv_HAVE_DIRFD=yes
+else case e in #(
+  e) rsync_cv_HAVE_DIRFD=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rsync_cv_HAVE_DIRFD" >&5
+printf "%s\n" "$rsync_cv_HAVE_DIRFD" >&6; }
+if test x"$rsync_cv_HAVE_DIRFD" = x"yes"; then
+
+printf "%s\n" "#define HAVE_DIRFD 1" >>confdefs.h
+
+fi
 
 if test x"$ac_cv_func_iconv_open" != x"yes"; then
     ac_fn_c_check_func "$LINENO" "libiconv_open" "ac_cv_func_libiconv_open"
@@ -12151,99 +12265,14 @@ printf "%s\n" "#define HAVE_SECURE_MKSTEMP 1" >>confdefs.h
 fi
 
 
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking if mknod creates FIFOs" >&5
-printf %s "checking if mknod creates FIFOs... " >&6; }
-if test ${rsync_cv_MKNOD_CREATES_FIFOS+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e)
-if test "$cross_compiling" = yes
-then :
-  rsync_cv_MKNOD_CREATES_FIFOS=cross
-else case e in #(
-  e) cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-#include <stdio.h>
-#include <sys/stat.h>
-#include <errno.h>
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#endif
-int main(void) { int rc, ec; char *fn = "fifo-test";
-unlink(fn); rc = mknod(fn,S_IFIFO,0600); ec = errno; unlink(fn);
-if (rc) {printf("(%d %d) ",rc,ec); return ec;}
-return 0;}
-_ACEOF
-if ac_fn_c_try_run "$LINENO"
-then :
-  rsync_cv_MKNOD_CREATES_FIFOS=yes
-else case e in #(
-  e) rsync_cv_MKNOD_CREATES_FIFOS=no ;;
-esac
-fi
-rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
-  conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
-esac
-fi
- ;;
-esac
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rsync_cv_MKNOD_CREATES_FIFOS" >&5
-printf "%s\n" "$rsync_cv_MKNOD_CREATES_FIFOS" >&6; }
-if test x"$rsync_cv_MKNOD_CREATES_FIFOS" = x"yes"; then
-
-printf "%s\n" "#define MKNOD_CREATES_FIFOS 1" >>confdefs.h
-
-fi
-
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking if mknod creates sockets" >&5
-printf %s "checking if mknod creates sockets... " >&6; }
-if test ${rsync_cv_MKNOD_CREATES_SOCKETS+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e)
-if test "$cross_compiling" = yes
-then :
-  rsync_cv_MKNOD_CREATES_SOCKETS=cross
-else case e in #(
-  e) cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-#include <stdio.h>
-#include <sys/stat.h>
-#include <errno.h>
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#endif
-int main(void) { int rc, ec; char *fn = "sock-test";
-unlink(fn); rc = mknod(fn,S_IFSOCK,0600); ec = errno; unlink(fn);
-if (rc) {printf("(%d %d) ",rc,ec); return ec;}
-return 0;}
-_ACEOF
-if ac_fn_c_try_run "$LINENO"
-then :
-  rsync_cv_MKNOD_CREATES_SOCKETS=yes
-else case e in #(
-  e) rsync_cv_MKNOD_CREATES_SOCKETS=no ;;
-esac
-fi
-rm -f core *.core core.conftest.* gmon.out bb.out conftest$ac_exeext \
-  conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
-esac
-fi
- ;;
-esac
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rsync_cv_MKNOD_CREATES_SOCKETS" >&5
-printf "%s\n" "$rsync_cv_MKNOD_CREATES_SOCKETS" >&6; }
-if test x"$rsync_cv_MKNOD_CREATES_SOCKETS" = x"yes"; then
-
-printf "%s\n" "#define MKNOD_CREATES_SOCKETS 1" >>confdefs.h
-
-fi
+# Whether mknod()/mknodat() can create a FIFO or a unix-domain socket is a
+# property of the target filesystem, not a build-time constant -- e.g. mknod
+# makes sockets on Linux but not the BSDs/macOS/Solaris, and a single transfer
+# can write to filesystems with different capabilities.  So rsync no longer
+# probes this at configure time (a run-test that also misfired when cross-
+# compiling); do_mknod*() just try mknod[at]() and, on failure, fall back to
+# mkfifo[at]()/socket+bind() per call.  We only need the libc symbols, checked
+# above via AC_CHECK_FUNCS (mknod mknodat mkfifo mkfifoat) -- all link tests.
 
 #
 # The following test was mostly taken from the tcl/tk plus patches
@@ -12696,6 +12725,159 @@ printf "%s\n" "#define NO_SYMLINK_XATTRS 1" >>confdefs.h
 	else
 	    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: No extended attribute support found" >&5
 printf "%s\n" "No extended attribute support found" >&6; }
+	fi
+	;;
+    esac
+fi
+
+#################################################
+# On Linux, POSIX ACLs are stored as the "system.posix_acl_{access,default}"
+# xattrs, so we can get/set them through a held O_NOFOLLOW fd (fsetxattr) or a
+# dirfd+leaf (setxattrat, AT_SYMLINK_NOFOLLOW) instead of the path-based libacl
+# acl_*_file() calls -- making the operation safe against a parent-symlink race.
+# This needs POSIX ACLs and the f/at xattr syscalls, which on Linux are
+# available whenever <sys/xattr.h> (or <attr/xattr.h>) is -- independent of the
+# -X feature (--disable-xattr-support), so we gate on the header, not
+# enable_xattr_support.
+
+
+if test x"$samba_cv_HAVE_POSIX_ACLS" = x"yes" \
+   && { test x"$ac_cv_header_sys_xattr_h" = x"yes" || test x"$ac_cv_header_attr_xattr_h" = x"yes"; }; then
+    case "$host_os" in
+    *linux*)
+	printf "%s\n" "#define SUPPORT_ACL_FD 1" >>confdefs.h
+
+	{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for SYS_setxattrat" >&5
+printf %s "checking for SYS_setxattrat... " >&6; }
+if test ${rsync_cv_have_sys_setxattrat+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e)
+	cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <sys/syscall.h>
+#include <stdint.h>
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+struct xattr_args { uint64_t value; uint32_t size; uint32_t flags; };
+int
+main (void)
+{
+struct xattr_args a; a.value = 0; a.size = 0; a.flags = 0;
+	  syscall(SYS_setxattrat, 0, ".", 0, "n", &a, sizeof a);
+	  syscall(SYS_getxattrat, 0, ".", 0, "n", &a, sizeof a);
+	  syscall(SYS_removexattrat, 0, ".", 0, "n");
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"
+then :
+  rsync_cv_have_sys_setxattrat=yes
+else case e in #(
+  e) rsync_cv_have_sys_setxattrat=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam conftest.$ac_ext ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $rsync_cv_have_sys_setxattrat" >&5
+printf "%s\n" "$rsync_cv_have_sys_setxattrat" >&6; }
+	if test x"$rsync_cv_have_sys_setxattrat" = x"yes"; then
+	    printf "%s\n" "#define HAVE_XATTRAT_SYSCALLS 1" >>confdefs.h
+
+	fi
+	;;
+    esac
+fi
+
+#################################################
+# Detect a patched libacl providing the race-safe
+# *_at ACL entry points (acl_get_file_at/acl_set_file_at/acl_delete_def_file_at,
+# ACL_1.3, unreleased upstream).  When present we route the race-safe ACL get/
+# set/delete through them on Linux -- race-safe on every kernel (6.13+ uses
+# *xattrat; older uses libacl's /proc/self/fd compat).  A stock -lacl lacks these
+# symbols, so this stays undefined and the build falls back to lib/acl.c;
+# detection must therefore run against the patched lib (CPPFLAGS/LDFLAGS).
+
+if test x"$samba_cv_HAVE_POSIX_ACLS" = x"yes"; then
+    case "$host_os" in
+    *linux*)
+	{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for acl_get_file_at in -lacl" >&5
+printf %s "checking for acl_get_file_at in -lacl... " >&6; }
+if test ${ac_cv_lib_acl_acl_get_file_at+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_check_lib_save_LIBS=$LIBS
+LIBS="-lacl  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.
+   The 'extern "C"' is for builds by C++ compilers;
+   although this is not generally supported in C code supporting it here
+   has little cost and some practical benefit (sr 110532).  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char acl_get_file_at (void);
+int
+main (void)
+{
+return acl_get_file_at ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_acl_acl_get_file_at=yes
+else case e in #(
+  e) ac_cv_lib_acl_acl_get_file_at=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_acl_acl_get_file_at" >&5
+printf "%s\n" "$ac_cv_lib_acl_acl_get_file_at" >&6; }
+if test "x$ac_cv_lib_acl_acl_get_file_at" = xyes
+then :
+  rsync_have_libacl_at=yes
+else case e in #(
+  e) rsync_have_libacl_at=no ;;
+esac
+fi
+
+	if test x"$rsync_have_libacl_at" = x"yes"; then
+
+  for ac_func in acl_set_file_at acl_delete_def_file_at
+do :
+  as_ac_var=`printf "%s\n" "ac_cv_func_$ac_func" | sed "$as_sed_sh"`
+ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
+if eval test \"x\$"$as_ac_var"\" = x"yes"
+then :
+  cat >>confdefs.h <<_ACEOF
+#define `printf "%s\n" "HAVE_$ac_func" | sed "$as_sed_cpp"` 1
+_ACEOF
+
+else case e in #(
+  e) rsync_have_libacl_at=no ;;
+esac
+fi
+
+done
+	fi
+	if test x"$rsync_have_libacl_at" = x"yes"; then
+	    printf "%s\n" "#define HAVE_LIBACL_AT 1" >>confdefs.h
+
 	fi
 	;;
     esac
