@@ -1,221 +1,161 @@
-rsync (3.4.4+ds1-1deepin16) unstable; urgency=medium
+rsync (3.5.0+ds1-0+deb13u2) trixie; urgency=medium
 
-  * fix(cve): CVE-2026-119741 (high) - match: bound hash_search
-    collision work (#1132)   Upstream:
-    https://github.com/RsyncProject/rsync/commit/a7404a9a633cff28ee1602f
-    328b9c3fa69cdbd04.patch
+  * Fix CVE-2026-119741: Unauthenticated attackers pulling from a public
+    daemon module can exhaust sender CPU across concurrent connections
+    (closes: #1149604).
 
- -- deepin-ci-robot <packages@deepin.org>  Wed, 04 Nov 2026 08:45:56 +0800
+ -- Samuel Henrique <samueloph@debian.org>  Sat, 07 Nov 2026 14:03:56 -0800
 
-rsync (3.4.4+ds1-1deepin15) unstable; urgency=medium
+rsync (3.5.0+ds1-0+deb13u1) trixie-security; urgency=medium
 
-  * Rebuild the CVE patch series from upstream's v3.4-stable security
-    backport branch (v3.4.1-sec-patches3), superseding the previous per-
-    CVE patch files
-  * All 204 patches apply cleanly to the pristine 3.4.4 source, the
-    package builds without warnings, and the rsync testsuite result
-    matches upstream 3.4.4 (54 passed, 6 skipped, 0 failed)
-  * Covered CVEs: CVE-2026-53783 CVE-2026-53784 CVE-2026-53785 CVE-2026-
-    53786 CVE-2026-53788 CVE-2026-53789 CVE-2026-53790 CVE-2026-53791
-    CVE-2026-53792 CVE-2026-53793 CVE-2026-53794 CVE-2026-53795 CVE-2026-
-    53796 CVE-2026-53797 CVE-2026-53798 CVE-2026-53799 CVE-2026-53800
-    CVE-2026-53801 CVE-2026-53802 CVE-2026-53803 CVE-2026-70452 CVE-2026-
-    70453 CVE-2026-70454 CVE-2026-70455 CVE-2026-70456 CVE-2026-70457
-    CVE-2026-70458 CVE-2026-70459 CVE-2026-70460 CVE-2026-70461 CVE-2026-
-    70462 CVE-2026-70463 CVE-2026-70464
+  * New upstream release, pull the same upstream patches applied in Debian
+    Unstable, fixing 33 CVEs;
+    - CVE-2026-53783: rrsync restricted-directory escape
+      (validation-vs-exec race + unsafe option allowlist)
+    - CVE-2026-53784: Daemon module-root chdir escape under "use chroot =
+      no"
+    - CVE-2026-53785: --relative implied-parent creation escapes the
+      destination tree
+    - CVE-2026-53786: Daemon --filter merge file bypasses the module filter
+      list
+    - CVE-2026-53788: Daemon name-converter accepts newline-bearing names
+      into its line protocol
+    - CVE-2026-53789: Malicious sender expands --delete scope by
+      reclassifying an implied parent
+    - CVE-2026-53790: Command / argument injection via unquoted peer- or
+      host-controlled values
+    - CVE-2026-53791: PROXY-protocol mode lets a direct client spoof the
+      daemon's source address
+    - CVE-2026-53792: Receiver-supplied zero checksum block length drives
+      sender matching negative
+    - CVE-2026-53793: Chroot "/./" inner-module escape via a
+      parent-component symlink
+    - CVE-2026-53794: Remote peer disables the per-allocation sanity cap
+      via --max-alloc=0
+    - CVE-2026-53795: Receiver write escape via an absolute --temp-dir /
+      --link-dest disabling rename/link confinement
+    - CVE-2026-53796: Non-daemon receiver destination-chdir symlink race
+      (TOCTOU)
+    - CVE-2026-53797: Sender source-tree parent-component symlink race ->
+      out-of-tree disclosure
+    - CVE-2026-53798: Daemon name-converter empty response maps an unknown
+      name to uid/gid 0
+    - CVE-2026-53799: Receiver ACL/xattr application follows a symlink-race
+      -> arbitrary ACL set (local privilege escalation)
+    - CVE-2026-53800: Sender --remove-source-files unlink follows a
+      parent-component symlink race -> arbitrary file deletion outside the
+      source tree
+    - CVE-2026-53801: Sender/daemon directory-scan enumeration escapes the
+      transfer root / module -> out-of-tree disclosure
+    - CVE-2026-53802: Arbitrary file read / transfer-shaping via symlinked
+      operator-supplied input files
+    - CVE-2026-53803: Arbitrary file write / privilege escalation via
+      symlinked operator-supplied output paths
+    - CVE-2026-70452: `hosts deny` fails OPEN when a configured hostname
+      cannot be resolved, admitting the host it was meant to block
+    - CVE-2026-70453: Quadratic CPU exhaustion in hash_search() from a
+      crafted equal-weak-checksum chain
+    - CVE-2026-70454: rsync-ssl establishes an unauthenticated TLS
+      connection (no CA verification; no stunnel hostname binding)
+    - CVE-2026-70455: Peer-controlled Zstandard worker exhaustion on an
+      rsync daemon
+    - CVE-2026-70456: Remote out-of-bounds heap write in read_args() when
+      the argument count lands exactly on maxargs
+    - CVE-2026-70457: Attacker-chosen-offset write in parse_size_arg()
+      error formatting
+    - CVE-2026-70458: Out-of-bounds write from a FLAG_HLINKED file entry
+      accepted without -H
+    - CVE-2026-70459: Per-connection daemon child crash from a crafted
+      first incremental file list with a non-directory transfer root
+    - CVE-2026-70460: Daemon module-root escape through a peer-supplied
+      --partial-dir / --backup-dir resolving via an in-module symlink
+    - CVE-2026-70461: Peer-driven one-byte heap out-of-bounds write in
+      add_implied_include()
+    - CVE-2026-70462: Peer-supplied MSG_IO_TIMEOUT defeats the client's own
+      I/O timeout (signed overflow, and a non-positive value)
+    - CVE-2026-70463: "auth users" ignores documented comma-only parsing,
+      silently skipping a deny/read-only rule
+    - CVE-2026-70464: Unauthenticated pre-transfer handshake DoS locks out
+      an rsync daemon module
+  * d/rsync.NEWS: Add a notice explaining the reasoning behind the version
+    bump in Stable.
+  * Pull six more patches from 3.5.1 to address regressions from 3.5.0:
+    - syscall_use_O_PATH_for_directory..., syscall_use_O_PATH_for_held...:
+      Fix the regression where a path through a directory that can be
+      searched but not read (mode 0711 or 0111) failed with "Permission
+      denied".
+    - rrsync_restore_restricted-root...: Fix the regression where rrsync
+      refused "/" and resolved option paths such as --link-dest=/previous
+      relative to the destination, so backups silently became full copies
+      instead of hard links
+    - options_c_Fix_files-from_confinement...: Stop refusing a --files-from
+      list outside --confine-root for local and remote-shell transfers
+    - syscall_follow_trusted_sender...: Fix the regression where a
+      --relative or --files-from source whose path goes through a symlink
+      failed with "Too many levels of symbolic links"
+    - receiver_c_Tighten_alt-dest...: Stop following a symlink as the
+      --link-dest/--copy-dest/--compare-dest basis file, which let a
+      malicious sender make the receiver copy the symlink's target into the
+      destination
+  * d/patches: Remove leftover patches from the 3.4.1 series, all of them
+    applied upstream in 3.5.0
 
- -- lichenggang <lichenggang@uniontech.com>  Mon, 21 Sep 2026 12:21:10 +0800
+   [ Arnaud Rebillout ]
+   * d/control: Switch back to python3-cmarkgfm for all architectures
 
-rsync (3.4.4+ds1-1deepin14) unstable; urgency=medium
+   [ Alexandre Detiste ]
+   * delete d/rules-pre-dh that shows up on Debian Code Search
+   * d/copyright: runtests.sh was refactored to runtests.py
+   * d/t/upstream-tests: runtests.sh was refactored to runtests.py
 
-  * fix(cve): CVE-2026-53788
-  * fix(cve): CVE-2026-70462 (high) - io: reject a non-positive
-    MSG_IO_TIMEOUT from the peer   Upstream:
-    https://github.com/RsyncProject/rsync/commit/e7c017914fa68c62f0f5e60
-    fe52dda7bae8c3109,https://github.com/RsyncProject/rsync/commit/e6044
-    af38f130f5094ed66bf44ddcf75728bc6ce
-  * fix(cve): CVE-2026-70464 (high) - daemon: bound the pre-transfer
-    handshake with a timeout   Upstream:
-    https://github.com/RsyncProject/rsync/commit/861bfa08128ae4cc27a3914
-    c6c27e01539cedafb
-  * fix(cve): CVE-2026-70455 (high) - options: refuse aliases for exact
-    option rules   Upstream:
-    https://github.com/RsyncProject/rsync/commit/ff4d495be7404abadaa0f6c
-    23ae7b6b0c3977980
-  * fix(cve): CVE-2026-70452 (critical) - access: fail closed when a
-    hosts-deny token can't be resolved   Upstream:
-    https://github.com/RsyncProject/rsync/commit/054d0eb475e20b9c6bb3199
-    37ba3fea4b04a30dd.patch
-  * fix(cve): CVE-2026-53783 (high) - rrrsync: pin path components
-    against a TOCTOU and fail closed on anomalies   Upstream:
-    https://github.com/RsyncProject/rsync/commit/88cee089637ac30f3af7b47
-    97e978fffc2cc45f5
-  * fix(cve): CVE-2026-53803 (high) - rsync: add --confine-root,
-    bounding operator path resolution   Upstream:
-    https://github.com/RsyncProject/rsync/commit/31130112185cd3f23e13a91
-    5d14ff0088c581a24
-  * fix(cve): CVE-2026-70460 (critical) - rsync: add --confine-root,
-    bounding operator path resolution   Upstream:
-    https://github.com/RsyncProject/rsync/commit/31130112185cd3f23e13a91
-    5d14ff0088c581a24.patch
-  * fix(cve): CVE-2026-53802 (high) - options.c: Fix --files-from
-    confinement for local and SSH transfers (#1094)   Upstream:
-    https://github.com/RsyncProject/rsync/pull/1094.patch
+   [ Sylvain Beucler ]
+   * autopkgtest improvements
+   * Drop allow-stderr autopkgtest restriction
 
- -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 04:01:09 +0800
+ -- Samuel Henrique <samueloph@debian.org>  Tue, 15 Sep 2026 18:46:30 -0700
 
-rsync (3.4.4+ds1-1deepin13) unstable; urgency=medium
+rsync (3.4.1+ds1-5+deb13u4) trixie; urgency=medium
 
-  * fix(cve): CVE-2026-53785
+  * Non-maintainer upload.
+  * Import upstream patch to reject overlong HTTP proxy response lines,
+    avoiding a one byte out of bounds stack write when using RSYNC_PROXY.
+    (CVE-2026-45232).
 
- -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 03:41:53 +0800
+ -- Aquila Macedo Costa <aquila@debian.org>  Mon, 01 Jun 2026 14:03:48 -0400
 
-rsync (3.4.4+ds1-1deepin12) unstable; urgency=medium
+rsync (3.4.1+ds1-5+deb13u3) trixie-security; urgency=high
 
-  * fix(cve): CVE-2026-53797
-
- -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 02:21:07 +0800
-
-rsync (3.4.4+ds1-1deepin11) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-53794
-
- -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 01:44:48 +0800
-
-rsync (3.4.4+ds1-1deepin10) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-53796
-
- -- deepin-ci-robot <packages@deepin.org>  Wed, 19 Aug 2026 01:04:12 +0800
-
-rsync (3.4.4+ds1-1deepin9) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-70456
-
- -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 20:32:16 +0800
-
-rsync (3.4.4+ds1-1deepin8) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-70454
-
- -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 20:16:01 +0800
-
-rsync (3.4.4+ds1-1deepin7) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-70463
-
- -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 18:52:40 +0800
-
-rsync (3.4.4+ds1-1deepin6) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-70463
-
- -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 18:52:29 +0800
-
-rsync (3.4.4+ds1-1deepin5) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-70463
-
- -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 18:52:16 +0800
-
-rsync (3.4.4+ds1-1deepin4) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-53784
-
- -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 17:23:02 +0800
-
-rsync (3.4.4+ds1-1deepin3) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-70461
-
- -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 01:39:56 +0800
-
-rsync (3.4.4+ds1-1deepin2) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-70453
-
- -- deepin-ci-robot <packages@deepin.org>  Tue, 18 Aug 2026 01:28:36 +0800
-
-rsync (3.4.4+ds1-1deepin1) unstable; urgency=medium
-
-  * fix(cve): CVE-2026-53791
-
- -- deepin-ci-robot <packages@deepin.org>  Mon, 17 Aug 2026 23:43:14 +0800
-
-rsync (3.4.4+ds1-1) unstable; urgency=medium
-
-  * New upstream version 3.4.4+ds1
-
- -- Samuel Henrique <samueloph@debian.org>  Sun, 07 Jun 2026 22:07:25 -0700
-
-rsync (3.4.3+ds1-2) unstable; urgency=high
-
+  * Non-maintainer upload by the Security Team.
+  * Address several vulnerabilities
+    - CVE-2026-29518: Symlink-race TOCTOU in daemon (use chroot = no)
+    - CVE-2026-43617: Authorization bypass via hostname resolution (daemon
+      chroot mode)
+    - CVE-2026-43618: Integer overflow in compressed-token decoder (info
+      disclosure)
+    - CVE-2026-43619: Symlink-race conditions in path-based syscalls
+    - CVE-2026-43620: Out-of-bounds array read in receiver recv_files()
   * d/t/upstream-tests: Build t_chmod_secure and t_secure_relpath
 
- -- Samuel Henrique <samueloph@debian.org>  Tue, 19 May 2026 18:23:33 -0700
+ -- Salvatore Bonaccorso <carnil@debian.org>  Mon, 18 May 2026 20:33:38 +0200
 
-rsync (3.4.3+ds1-1) unstable; urgency=high
-
-  * New upstream version 3.4.3+ds1
-  * d/p/syscall_use_openat2...: Drop merged patch
-
- -- Samuel Henrique <samueloph@debian.org>  Tue, 19 May 2026 17:47:34 -0700
-
-rsync (3.4.2+ds1-2) unstable; urgency=medium
+rsync (3.4.1+ds1-5+deb13u2) trixie; urgency=medium
 
   * d/p/syscall_use_openat2...: New patch to fix symlink handling on the
     receiver (closes: #1093160)
+  * Add patch for CVE-2026-41035
 
- -- Samuel Henrique <samueloph@debian.org>  Thu, 30 Apr 2026 09:50:10 -0300
+ -- Samuel Henrique <samueloph@debian.org>  Thu, 30 Apr 2026 10:05:39 -0300
 
-rsync (3.4.2+ds1-1) unstable; urgency=medium
-
-  [ Samuel Henrique ]
-  * New upstream version 3.4.2+ds1
-    - Fix CVE-2026-41035 (closes: #1134617)
-  * Drop patches merged upstream.
-     - fix-flaky-hardlinks-test.patch
-     - reproducible-build.patch
-     - gcc_15.patch
-     - CVE-2025-10158.patch
-  * d/copyright: runtests.sh was refactored to runtests.py
-  * d/t/upstream-tests: runtests.sh was refactored to runtests.py
-
-  [ Alexandre Detiste ]
-  * delete d/rules-pre-dh that shows up on Debian Code Search
-
- -- Samuel Henrique <samueloph@debian.org>  Wed, 29 Apr 2026 11:58:29 -0300
-
-rsync (3.4.1+ds1-7) unstable; urgency=medium
+rsync (3.4.1+ds1-5+deb13u1) trixie; urgency=medium
 
   * Team upload.
-
-  [ Arnaud Rebillout ]
-  * d/control: Switch back to python3-cmarkgfm for all architectures
-
-  [ Matheus Polkorny ]
   * d/p/CVE-2025-10158.patch: Import upstream patch to fix CVE-2025-10158
 
     A malicious client acting as the receiver of an rsync file transfer
     can trigger an out of bounds read of a heap based buffer,
-    via a negative array index. (Closes: #1121442)
+    via a negative array index.
 
- -- Matheus Polkorny <mpolkorny@gmail.com>  Thu, 27 Nov 2025 21:01:55 -0300
-
-rsync (3.4.1+ds1-6) unstable; urgency=medium
-
-  [ Samuel Henrique ]
-  * d/p/reproducible-build.patch: New patch to fix reproducible builds, thanks
-    to lamby (closes: #1093201)
-  * gcc_15.patch: New patch to support building with GCC 15 (closes: #1097811)
-
-  [ Arnaud Rebillout ]
-  * d/tests/remote-tests: start the SSH service if ever it's not up
-
-  [ Alex ]
-  * d/tests/local-tests: remove test skip
-
- -- Samuel Henrique <samueloph@debian.org>  Wed, 22 Oct 2025 19:22:21 +0100
+ -- Matheus Polkorny <mpolkorny@gmail.com>  Thu, 27 Nov 2025 21:29:04 -0300
 
 rsync (3.4.1+ds1-5) unstable; urgency=medium
 
